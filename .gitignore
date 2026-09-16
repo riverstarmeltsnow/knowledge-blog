@@ -1,5 +1,8 @@
 HELP.md
 target/
+
+### 本地私有配置（含数据库密码，禁止提交）###
+application-local.properties
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
