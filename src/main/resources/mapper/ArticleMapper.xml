@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace 必须和 Mapper 接口的全限定名一模一样，MyBatis 靠它把两边对上 -->
+<mapper namespace="cuit.mygit.mapper.ArticleMapper">
+
+    <!--
+        id 必须和接口里的方法名一致。
+        resultType="Article" 用的是简称，完整名 cuit.mygit.entity.Article，
+        因为 application.properties 里配了 mybatis.type-aliases-package，所以能简写。
+
+        article_id 这类下划线字段会自动映射到 Article 类的 articleId 属性，
+        靠的是 mybatis.configuration.map-underscore-to-camel-case=true。
+    -->
+    <select id="selectAll" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>
