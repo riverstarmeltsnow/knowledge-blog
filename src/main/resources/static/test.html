@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<!--
+  个人知识博客系统 —— 功能测试台
+
+  这不是博客的正式前台页面，而是给实验验收用的"操作台"：
+  把系统里 28 个接口做成能点的按钮，方便走一遍完整流程
+  （发文章 → 贴标签 → 看详情 → 评论 → 回复评论 → 试着删别人的内容、改别人文章的标签，看权限拦不拦）。
+
+  为什么放在 static 目录下？
+  Spring Boot 会自动把 src/main/resources/static 里的文件当静态资源发布，
+  所以启动应用后浏览器访问 http://localhost:8080/test.html 就能打开，
+  不需要额外配置，也不需要装任何前端工具。
+
+  页面用的是原生 HTML + CSS + JavaScript，没引入任何框架，
+  所有数据都通过 fetch 调后端接口拿。
+-->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>个人知识博客 · 功能测试台</title>
+    <style>
+        /* ==================== 全局样式 ==================== */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+            background: #f1f5f9;
+            color: #1e293b;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ==================== 顶部身份栏 ==================== */
+        header {
+            background: #1e293b;
+            color: #fff;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        header h1 {
+            font-size: 17px;
+            font-weight: 600;
+        }
+
+        .identity {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+
+        .identity select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background: #334155;
+            color: #fff;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        /* ==================== 布局：左边内容，右边日志 ==================== */
+        .layout {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            align-items: flex-start;
+        }
+
+        main {
+            flex: 1 1 62%;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        aside {
+            flex: 1 1 38%;
+            min-width: 0;
+            position: sticky;
+            top: 16px;
+        }
+
+        /* 窄屏时改成上下排列 */
+        @media (max-width: 900px) {
+            .layout {
+                flex-direction: column;
+            }
+
+            aside {
+                position: static;
+                width: 100%;
+            }
+        }
+
+        /* ==================== 卡片 ==================== */
+        .card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 16px 18px;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+        }
+
+        .card h2 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card h2 .hint {
+            font-size: 12px;
+            font-weight: 400;
+            color: #94a3b8;
+        }
+
+        /* ==================== 表单控件 ==================== */
+        label {
+            display: block;
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 4px;
+            margin-top: 10px;
+        }
+
+        input[type=text], textarea, select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            background: #fff;
+        }
+
+        input[type=text]:focus, textarea:focus, select:focus {
+            outline: 2px solid #bfdbfe;
+            border-color: #2563eb;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 70px;
+        }
+
+        /* ==================== 按钮 ==================== */
+        button {
+            font-family: inherit;
+            font-size: 13px;
+            padding: 7px 14px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: .15s;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-ghost {
+            background: #fff;
+            border-color: #cbd5e1;
+            color: #334155;
+        }
+
+        .btn-ghost:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+        }
+
+        .btn-danger {
+            background: #fff;
+            border-color: #fca5a5;
+            color: #dc2626;
+        }
+
+        .btn-danger:hover {
+            background: #fef2f2;
+        }
+
+        .btn-sm {
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+
+        .actions {
+            margin-top: 12px;
+            display: flex;
+            gap: 8px;
+        }
+
+        /* ==================== 文章列表 ==================== */
+        .article {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+        }
+
+        .article-title {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 8px;
+        }
+
+        .meta .tag {
+            display: inline-block;
+            background: #eff6ff;
+            color: #1d4ed8;
+            border-radius: 4px;
+            padding: 1px 7px;
+            margin-right: 4px;
+            font-size: 11px;
+        }
+
+        .row-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        /* ==================== 详情区 ==================== */
+        .detail {
+            margin-top: 12px;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .detail-block {
+            margin-bottom: 14px;
+        }
+
+        .detail-block:last-child {
+            margin-bottom: 0;
+        }
+
+        .detail-block h3 {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #334155;
+        }
+
+        /* 标题后面跟的一句灰色小字说明 */
+        .detail-block h3 .hint {
+            font-size: 11px;
+            font-weight: 400;
+            color: #94a3b8;
+            margin-left: 6px;
+        }
+
+        .content-box {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 10px;
+            white-space: pre-wrap;
+            font-size: 13px;
+            color: #334155;
+        }
+
+        /* 标签小方块：点一下贴/取消 */
+        .chip-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .chip {
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            border-radius: 20px;
+            padding: 3px 12px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .chip:hover {
+            border-color: #94a3b8;
+        }
+
+        .chip.on {
+            background: #dbeafe;
+            border-color: #2563eb;
+            color: #1d4ed8;
+            font-weight: 600;
+        }
+
+        .chip.on::after {
+            content: " ✓";
+        }
+
+        /* ==================== 评论 ==================== */
+        /* 一条评论 + 它下面的回复 + （点"回复"后出现的）回复框，算一组 */
+        .comment-item {
+            margin-bottom: 10px;
+        }
+
+        .comment {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        /* 回复列表：缩进 + 左边一条竖线，一眼看出"挂在上面那条评论下面" */
+        .reply-list {
+            margin: 0 0 0 22px;
+            padding-left: 10px;
+            border-left: 2px solid #e2e8f0;
+        }
+
+        .reply-list .comment {
+            background: #f8fafc;
+        }
+
+        .comment-body {
+            min-width: 0;
+        }
+
+        .comment-body .who {
+            font-size: 12px;
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        .comment-body .when {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-left: 6px;
+        }
+
+        /* "回复 @某某：" 前缀，颜色淡一点，和正文区分开 */
+        .comment-body .reply-to {
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .comment-body .text {
+            font-size: 13px;
+            margin-top: 2px;
+            word-break: break-word;
+        }
+
+        /* 评论右边的按钮组不参与压缩，否则窄屏时会被挤变形 */
+        .comment > .row-actions {
+            flex-shrink: 0;
+        }
+
+        .comment-form {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .comment-form input {
+            flex: 1;
+        }
+
+        /* 点"回复"后，在被回复的那条评论下面出现的输入框（缩进对齐） */
+        .reply-form {
+            display: flex;
+            gap: 8px;
+            margin: 0 0 8px 22px;
+        }
+
+        .reply-form input {
+            flex: 1;
+        }
+
+        /* ==================== 分类 / 标签管理 ==================== */
+        .manage-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px dashed #e2e8f0;
+            font-size: 13px;
+        }
+
+        .manage-row:last-child {
+            border-bottom: none;
+        }
+
+        .inline-form {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .inline-form input {
+            flex: 1;
+        }
+
+        /* ==================== 操作日志 ==================== */
+        .log-card {
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 130px);
+        }
+
+        .log {
+            flex: 1;
+            overflow-y: auto;
+            background: #0f172a;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: Consolas, Monaco, monospace;
+            font-size: 11.5px;
+            line-height: 1.7;
+            color: #cbd5e1;
+        }
+
+        .log-line {
+            white-space: pre-wrap;
+            word-break: break-all;
+            padding: 2px 0;
+            border-bottom: 1px solid #1e293b;
+        }
+
+        .log-line.req {
+            color: #7dd3fc;
+        }
+
+        .log-line.ok {
+            color: #86efac;
+        }
+
+        .log-line.err {
+            color: #fca5a5;
+        }
+
+        .log:empty::after {
+            content: "这里会显示每一次接口调用，看看请求和返回长什么样";
+        }
+
+        /* ==================== 右下角提示 ==================== */
+        #toast {
+            position: fixed;
+            right: 20px;
+            bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 99;
+        }
+
+        .toast-item {
+            padding: 10px 16px;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 13px;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, .2);
+            animation: slideIn .2s;
+            max-width: 360px;
+        }
+
+        .toast-item.ok {
+            background: #16a34a;
+        }
+
+        .toast-item.err {
+            background: #dc2626;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .empty {
+            color: #94a3b8;
+            font-size: 13px;
+            padding: 8px 0;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>个人知识博客 · 功能测试台</h1>
+    <div class="identity">
+        <span>当前身份：</span>
+        <!-- 切换身份会同时改变"发文章/评论的作者"和"删除时的操作人"，
+             用来验证权限规则：普通用户删不了别人的内容，管理员可以 -->
+        <select id="identitySelect" onchange="onIdentityChange()"></select>
+        <span id="roleLabel"></span>
+    </div>
+</header>
+
+<div class="layout">
+    <main>
+        <!-- ==================== 1. 发表文章 ==================== -->
+        <section class="card">
+            <h2>发表文章 <span class="hint">对应接口 POST /article/add</span></h2>
+            <label for="newTitle">标题</label>
+            <input type="text" id="newTitle" placeholder="例如：我的第一篇博客">
+            <label for="newCategory">分类（可以不选，表示未分类）</label>
+            <select id="newCategory"></select>
+            <label for="newContent">正文</label>
+            <textarea id="newContent" placeholder="写点什么……"></textarea>
+            <div class="actions">
+                <button class="btn-primary" onclick="publishArticle()">发布</button>
+                <button class="btn-ghost" onclick="fillDemoContent()">填一段示例文字</button>
+            </div>
+        </section>
+
+        <!-- ==================== 2. 文章列表 ==================== -->
+        <section class="card">
+            <h2>文章列表 <span class="hint">对应接口 GET /article/list</span></h2>
+            <div id="articleList"></div>
+        </section>
+
+        <!-- ==================== 3. 分类和标签管理 ==================== -->
+        <section class="card">
+            <h2>分类管理 <span class="hint">分类下还有文章时删不掉，可以试试</span></h2>
+            <div id="categoryList"></div>
+            <div class="inline-form">
+                <input type="text" id="newCategoryName" placeholder="新分类名称">
+                <button class="btn-primary" onclick="addCategory()">新增</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>标签管理 <span class="hint">删标签会连带清掉它在文章上的关联</span></h2>
+            <div id="tagList"></div>
+            <div class="inline-form">
+                <input type="text" id="newTagName" placeholder="新标签名称">
+                <button class="btn-primary" onclick="addTag()">新增</button>
+            </div>
+        </section>
+    </main>
+
+    <!-- ==================== 4. 操作日志 ==================== -->
+    <aside>
+        <section class="card log-card">
+            <h2>
+                操作日志
+                <button class="btn-ghost btn-sm" onclick="clearLog()">清空</button>
+            </h2>
+            <div class="log" id="log"></div>
+        </section>
+    </aside>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    // ============================================================
+    // 全局状态
+    // ============================================================
+    let users = [];            // 所有用户，用来填身份下拉框、把 userId 翻译成用户名
+    let categories = [];       // 所有分类，用来填分类下拉框
+    let tags = [];             // 所有标签，用来画标签小方块
+    let articles = [];         // 文章列表
+    let currentUserId = null;  // 当前"登录"的用户ID
+    let openArticleId = null;  // 当前展开了详情的文章ID（null 表示都收起）
+    let openDetail = null;     // 当前展开的文章详情：{ article, tags, comments }
+    let replyTo = null;        // 正在回复哪条评论的ID（null 表示没有在回复）
+
+    // ============================================================
+    // 最核心的一个函数：统一发请求
+    //
+    // 所有接口调用都走这里，好处是：
+    //   1. 自动把"请求了什么、返回了什么"写进右侧日志 —— 看日志就能学接口
+    //   2. 自动处理失败：后端返回 code != 200 时弹出红框提示
+    //   3. 调用方只关心成功的数据，不用每次都写重复的判断
+    // ============================================================
+    async function api(method, path, body) {
+        const options = {method: method};
+        if (body !== undefined) {
+            options.headers = {'Content-Type': 'application/json'};
+            options.body = JSON.stringify(body);
+        }
+
+        // 记一条请求日志
+        addLog(`${method} ${path}`, 'req');
+        if (body !== undefined) {
+            addLog('  ' + JSON.stringify(body), 'req');
+        }
+
+        let result;
+        try {
+            const response = await fetch(path, options);
+            result = await response.json();
+        } catch (e) {
+            addLog('  请求失败：' + e.message, 'err');
+            toast('请求失败，检查一下应用是不是还开着', 'err');
+            throw e;
+        }
+
+        // 记一条响应日志，成功绿色、失败红色
+        addLog('  → ' + JSON.stringify(result), result.code === 200 ? 'ok' : 'err');
+
+        if (result.code !== 200) {
+            // 后端用 msg 说明了失败原因，比如"没有权限删除这篇文章"
+            toast(result.msg, 'err');
+            throw new Error(result.msg);
+        }
+        return result.data;
+    }
+
+    // ============================================================
+    // 页面初始化
+    // ============================================================
+    async function init() {
+        try {
+            users = await api('GET', '/user/list');
+            categories = await api('GET', '/category/list');
+            tags = await api('GET', '/tag/list');
+        } catch (e) {
+            return; // 连一开始的查询都失败，后面的就不用做了
+        }
+
+        renderIdentitySelect();
+        renderCategoryOptions();
+        await loadArticles();
+        renderCategoryList();
+        renderTagList();
+    }
+
+    /** 填身份下拉框：显示"用户名（角色）" */
+    function renderIdentitySelect() {
+        const select = document.getElementById('identitySelect');
+        select.innerHTML = users.map(u =>
+            `<option value="${u.userId}">${escapeHtml(u.username)}（${u.role === 1 ? '管理员' : '普通用户'}）</option>`
+        ).join('');
+        currentUserId = users.length > 0 ? users[0].userId : null;
+        updateRoleLabel();
+    }
+
+    /** 切换身份 */
+    function onIdentityChange() {
+        currentUserId = Number(document.getElementById('identitySelect').value);
+        updateRoleLabel();
+        replyTo = null;   // 换个人操作，之前开着的回复框关掉
+        toast('已切换身份，现在发文章/评论的作者、删除和改标签时的操作人都是这个人', 'ok');
+    }
+
+    /** 右上角那句角色说明，提醒当前身份能做什么 */
+    function updateRoleLabel() {
+        const me = findUser(currentUserId);
+        const label = document.getElementById('roleLabel');
+        if (me && me.role === 1) {
+            label.textContent = '（管理员，能删任何人的内容、改任何文章的标签）';
+        } else {
+            label.textContent = '（只能删自己发的内容，标签也只能改自己文章的）';
+        }
+    }
+
+    function renderCategoryOptions() {
+        document.getElementById('newCategory').innerHTML =
+            '<option value="">（未分类）</option>' +
+            categories.map(c => `<option value="${c.categoryId}">${escapeHtml(c.name)}</option>`).join('');
+    }
+
+    // ============================================================
+    // 文章：发布 / 列表 / 详情
+    // ============================================================
+
+    /** 点"发布"按钮 */
+    async function publishArticle() {
+        const title = document.getElementById('newTitle').value.trim();
+        const content = document.getElementById('newContent').value.trim();
+        const categoryValue = document.getElementById('newCategory').value;
+
+        // 前端也做一次基本校验，省得白跑一趟后端。
+        // 注意：真正的校验在后端 Service 层，前端校验只是为了体验好，
+        // 绕过前端直接调接口的话，后端的校验照样会拦住。
+        if (!title) {
+            toast('标题不能为空', 'err');
+            return;
+        }
+
+        await api('POST', '/article/add', {
+            title: title,
+            content: content,
+            userId: currentUserId,
+            categoryId: categoryValue ? Number(categoryValue) : null
+        });
+
+        toast('发布成功', 'ok');
+        document.getElementById('newTitle').value = '';
+        document.getElementById('newContent').value = '';
+        await loadArticles();
+    }
+
+    /** 往表单里填一段示例文字，省得每次都手打 */
+    function fillDemoContent() {
+        document.getElementById('newTitle').value = '学习笔记：分层开发的好处';
+        document.getElementById('newContent').value =
+            '把代码分成 Entity、DAO、Service、Controller 四层之后，\n' +
+            '改数据库操作只动 Mapper，改业务规则只动 Service，各层互不干扰。\n' +
+            '最直观的感受是：调试的时候知道该去哪个文件里找问题。';
+    }
+
+    /** 拉文章列表 */
+    async function loadArticles() {
+        articles = await api('GET', '/article/list');
+        renderArticles();
+    }
+
+    /** 把文章列表画到页面上 */
+    function renderArticles() {
+        const box = document.getElementById('articleList');
+        if (articles.length === 0) {
+            box.innerHTML = '<div class="empty">还没有文章，上面发一篇试试</div>';
+            return;
+        }
+
+        box.innerHTML = articles.map(a => {
+            const expanded = a.articleId === openArticleId;
+            return `
+            <div class="article">
+                <div class="article-title">${escapeHtml(a.title)}</div>
+                <div class="meta">
+                    作者 ${escapeHtml(userName(a.userId))}
+                    · 分类 ${escapeHtml(categoryName(a.categoryId))}
+                    · 浏览量 ${a.viewCount}
+                    · ${formatTime(a.createTime)}
+                </div>
+                <div class="row-actions">
+                    <button class="btn-ghost btn-sm" onclick="toggleDetail(${a.articleId})">
+                        ${expanded ? '收起' : '看详情'}
+                    </button>
+                    <button class="btn-danger btn-sm" onclick="deleteArticle(${a.articleId})">删除</button>
+                </div>
+                ${expanded ? renderDetail() : ''}
+            </div>`;
+        }).join('');
+    }
+
+    /**
+     * 点"回复"后，在被回复的那条评论下面出现的输入框。
+     * 输入框的提示文字会写明在回复谁；回车发送，Esc 取消。
+     */
+    function replyBox(articleId, comment) {
+        return `
+            <div class="reply-form">
+                <input type="text" id="replyInput"
+                       placeholder="回复 @${escapeHtml(userName(comment.userId))}……"
+                       onkeydown="if(event.key==='Enter') postComment(${articleId}, ${comment.commentId}); if(event.key==='Escape') cancelReply()">
+                <button class="btn-primary btn-sm" onclick="postComment(${articleId}, ${comment.commentId})">回复</button>
+                <button class="btn-ghost btn-sm" onclick="cancelReply()">取消</button>
+            </div>`;
+    }
+
+    /** 点某条评论的"回复"按钮：记下要回复哪条，再重画一次让输入框出现 */
+    function startReply(commentId) {
+        replyTo = commentId;
+        renderArticles();
+        const input = document.getElementById('replyInput');
+        if (input) {
+            input.focus();
+        }
+    }
+
+    /** 关掉回复框，回到普通输入 */
+    function cancelReply() {
+        replyTo = null;
+        renderArticles();
+    }
+
+    /** 画展开的详情区：正文 + 标签 + 评论（两层） */
+    function renderDetail() {
+        if (!openDetail) {
+            return '<div class="detail">加载中……</div>';
+        }
+        const article = openDetail.article;
+        const articleTags = openDetail.tags;
+
+        // 标签小方块：这篇文章贴过的显示成高亮（.on），点一下贴或取消
+        const chips = tags.map(t => {
+            const on = articleTags.some(at => at.tagId === t.tagId);
+            return `<button class="chip ${on ? 'on' : ''}"
+                        onclick="toggleTag(${article.articleId}, ${t.tagId}, ${on})">
+                        ${escapeHtml(t.name)}
+                    </button>`;
+        }).join('');
+
+        // ---------- 评论：两层（顶层评论 + 它下面的回复）----------
+        // 后端返回的是一张平铺的列表，靠每条自己的 parentId 区分：
+        // parentId 为 null 是顶层，有值就是挂在某条顶层评论下面的回复。
+        // 这里按 parentId 分成两组，就拼成两层了。
+        const allComments = openDetail.comments;
+        const topLevel = allComments.filter(c => c.parentId == null);
+
+        /**
+         * 画一条评论。
+         * @param c       评论数据
+         * @param isReply 是不是回复（回复要多显示一个"回复 @某某："前缀）
+         */
+        const renderOne = (c, isReply) => `
+            <div>
+                <div class="comment">
+                    <div class="comment-body">
+                        <span class="who">${escapeHtml(userName(c.userId))}</span>
+                        <span class="when">${formatTime(c.createTime)}</span>
+                        <div class="text">${
+                            isReply && c.replyToUserId
+                                ? `<span class="reply-to">回复 @${escapeHtml(userName(c.replyToUserId))}：</span>`
+                                : ''
+                        }${escapeHtml(c.content)}</div>
+                    </div>
+                    <div class="row-actions">
+                        <button class="btn-ghost btn-sm" onclick="startReply(${c.commentId})">回复</button>
+                        <button class="btn-danger btn-sm" onclick="deleteComment(${c.commentId})">删除</button>
+                    </div>
+                </div>
+                ${replyTo === c.commentId ? replyBox(article.articleId, c) : ''}
+            </div>`;
+
+        const comments = topLevel.length === 0
+            ? '<div class="empty">还没有人评论</div>'
+            : topLevel.map(c => {
+                // 挂在它下面的回复。后端统一按时间倒序返回，
+                // 这里给回复翻个序，读起来才是"你一句我一句"的顺序。
+                const replies = allComments
+                    .filter(r => r.parentId === c.commentId)
+                    .sort((a, b) => timeValue(a.createTime) - timeValue(b.createTime));
+                return `
+                <div class="comment-item">
+                    ${renderOne(c, false)}
+                    ${replies.length
+                        ? `<div class="reply-list">${replies.map(r => renderOne(r, true)).join('')}</div>`
+                        : ''}
+                </div>`;
+            }).join('');
+
+        return `
+        <div class="detail">
+            <div class="detail-block">
+                <h3>正文</h3>
+                <div class="content-box">${escapeHtml(article.content || '（这篇文章没有正文）')}</div>
+            </div>
+
+            <div class="detail-block">
+                <h3>标签（点一下贴或取消）<span class="hint">只有文章作者本人和管理员能改</span></h3>
+                <div class="chip-list">${chips || '<span class="empty">系统里还没有标签</span>'}</div>
+            </div>
+
+            <div class="detail-block">
+                <h3>评论（${topLevel.length} 条评论 · ${allComments.length - topLevel.length} 条回复）</h3>
+                ${comments}
+                <div class="comment-form">
+                    <input type="text" id="commentInput" placeholder="对这篇文章说点什么……"
+                           onkeydown="if(event.key==='Enter') postComment(${article.articleId})">
+                    <button class="btn-primary" onclick="postComment(${article.articleId})">发表</button>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    /** 展开/收起某篇文章的详情 */
+    async function toggleDetail(articleId) {
+        if (openArticleId === articleId) {
+            // 再点一次就收起
+            openArticleId = null;
+            openDetail = null;
+            renderArticles();
+            return;
+        }
+
+        openArticleId = articleId;
+        replyTo = null;   // 换一篇文章，之前开着的回复框要关掉
+        await reloadDetail();
+    }
+
+    /** 重新拉当前展开文章的详情、标签、评论 */
+    async function reloadDetail() {
+        if (openArticleId === null) {
+            return;
+        }
+        const id = openArticleId;
+        // 查详情会让浏览量 +1，所以每次点开数字都会涨，这是正常现象
+        const article = await api('GET', '/article/' + id);
+        const articleTags = await api('GET', `/article/${id}/tags`);
+        const comments = await api('GET', `/comment/article/${id}`);
+
+        openDetail = {article: article, tags: articleTags, comments: comments};
+        await loadArticles();   // 顺带刷新列表，让浏览量显示成最新的
+    }
+
+    /** 删除文章（会连带删掉它的评论和标签关联） */
+    async function deleteArticle(articleId) {
+        const article = articles.find(a => a.articleId === articleId);
+        if (!confirm(`确定删除《${article ? article.title : articleId}》吗？\n它的评论（含下面的回复）和标签关联会一起被删掉。`)) {
+            return;
+        }
+        try {
+            await api('DELETE', `/article/${articleId}?operatorId=${currentUserId}`);
+            toast('删除成功', 'ok');
+            if (openArticleId === articleId) {
+                openArticleId = null;
+                openDetail = null;
+            }
+            await loadArticles();
+        } catch (e) {
+            // 没权限时后端会拒绝，api() 里已经弹过红框了，这里不用重复提示
+        }
+    }
+
+    // ============================================================
+    // 标签：贴在文章上 / 从文章上取消
+    // ============================================================
+    async function toggleTag(articleId, tagId, isOn) {
+        // operatorId 是当前身份 —— 后端靠它判断"你有没有资格改这篇文章的标签"，
+        // 不是作者本人也不是管理员的话会被拒绝
+        const path = `/article/${articleId}/tag/${tagId}?operatorId=${currentUserId}`;
+        try {
+            if (isOn) {
+                await api('DELETE', path);
+                toast('已取消标签', 'ok');
+            } else {
+                await api('POST', path);
+                toast('已贴上标签', 'ok');
+            }
+            await reloadDetail();
+        } catch (e) {
+            // 失败提示由 api() 统一弹
+        }
+    }
+
+    // ============================================================
+    // 评论：发表 / 回复 / 删除
+    // ============================================================
+
+    /**
+     * 发表评论。带 parentId 时就是"回复某条评论"。
+     * 带不带 parentId 用的是一个接口 —— 后端靠请求体里有没有这个字段
+     * 区分"评论"和"回复"。
+     *
+     * @param articleId 哪篇文章
+     * @param parentId  回复哪条评论；不传就是直接评论文章
+     */
+    async function postComment(articleId, parentId) {
+        // 回复用的是那条评论下面的小输入框，普通评论用底部的大输入框
+        const isReply = parentId !== undefined && parentId !== null;
+        const input = document.getElementById(isReply ? 'replyInput' : 'commentInput');
+        const content = input.value.trim();
+        if (!content) {
+            toast(isReply ? '回复内容不能为空' : '评论内容不能为空', 'err');
+            return;
+        }
+
+        const body = {
+            content: content,
+            userId: currentUserId,
+            articleId: articleId
+        };
+        if (isReply) {
+            // 被回复人不用传 —— 后端会自己根据 parentId 查出那条评论是谁写的，
+            // 传了也会被忽略（防止伪造成"某某回复了你"）
+            body.parentId = parentId;
+        }
+
+        try {
+            await api('POST', '/comment/add', body);
+            toast(isReply ? '回复成功' : '评论成功', 'ok');
+            input.value = '';
+            replyTo = null;   // 发完把回复框收起来
+            await reloadDetail();
+        } catch (e) {
+            // 失败提示由 api() 统一弹
+        }
+    }
+
+    async function deleteComment(commentId) {
+        // 删的是顶层评论时，它下面的回复会被后端一起删掉，先提醒一句
+        const replies = openDetail.comments.filter(c => c.parentId === commentId);
+        const tip = replies.length > 0
+            ? `这条评论下面有 ${replies.length} 条回复，会一起被删除。\n确定删除吗？`
+            : '确定删除这条评论吗？';
+        if (!confirm(tip)) {
+            return;
+        }
+
+        try {
+            await api('DELETE', `/comment/${commentId}?operatorId=${currentUserId}`);
+            toast('评论已删除', 'ok');
+            replyTo = null;
+            await reloadDetail();
+        } catch (e) {
+            // 失败提示由 api() 统一弹
+        }
+    }
+
+    // ============================================================
+    // 分类管理
+    // ============================================================
+    function renderCategoryList() {
+        const box = document.getElementById('categoryList');
+        box.innerHTML = categories.length === 0
+            ? '<div class="empty">还没有分类</div>'
+            : categories.map(c => `
+                <div class="manage-row">
+                    <span>${escapeHtml(c.name)}<span style="color:#94a3b8;font-size:12px">
+                        ${c.description ? ' · ' + escapeHtml(c.description) : ''}</span></span>
+                    <button class="btn-danger btn-sm" onclick="deleteCategory(${c.categoryId})">删除</button>
+                </div>`).join('');
+    }
+
+    async function addCategory() {
+        const input = document.getElementById('newCategoryName');
+        const name = input.value.trim();
+        if (!name) {
+            toast('分类名称不能为空', 'err');
+            return;
+        }
+        try {
+            await api('POST', '/category/add', {name: name});
+            toast('分类已新增', 'ok');
+            input.value = '';
+            categories = await api('GET', '/category/list');
+            renderCategoryList();
+            renderCategoryOptions();
+        } catch (e) {
+            // 重名时后端会拒绝，提示已由 api() 弹出
+        }
+    }
+
+    async function deleteCategory(categoryId) {
+        try {
+            await api('DELETE', '/category/' + categoryId);
+            toast('分类已删除', 'ok');
+            categories = await api('GET', '/category/list');
+            renderCategoryList();
+            renderCategoryOptions();
+        } catch (e) {
+            // 分类下还有文章时会被拒绝，这条规则正好可以在这里验证
+        }
+    }
+
+    // ============================================================
+    // 标签管理
+    // ============================================================
+    function renderTagList() {
+        const box = document.getElementById('tagList');
+        box.innerHTML = tags.length === 0
+            ? '<div class="empty">还没有标签</div>'
+            : tags.map(t => `
+                <div class="manage-row">
+                    <span>${escapeHtml(t.name)}</span>
+                    <button class="btn-danger btn-sm" onclick="deleteTag(${t.tagId})">删除</button>
+                </div>`).join('');
+    }
+
+    async function addTag() {
+        const input = document.getElementById('newTagName');
+        const name = input.value.trim();
+        if (!name) {
+            toast('标签名称不能为空', 'err');
+            return;
+        }
+        try {
+            await api('POST', '/tag/add', {name: name});
+            toast('标签已新增', 'ok');
+            input.value = '';
+            tags = await api('GET', '/tag/list');
+            renderTagList();
+        } catch (e) {
+            // 重名时后端会拒绝
+        }
+    }
+
+    async function deleteTag(tagId) {
+        try {
+            await api('DELETE', '/tag/' + tagId);
+            toast('标签已删除', 'ok');
+            tags = await api('GET', '/tag/list');
+            renderTagList();
+            if (openArticleId !== null) {
+                await reloadDetail();   // 标签被删了，展开的详情要跟着更新
+            }
+        } catch (e) {
+            // 失败提示由 api() 统一弹
+        }
+    }
+
+    // ============================================================
+    // 小工具函数
+    // ============================================================
+
+    /** 把 userId 翻译成用户名 */
+    function findUser(userId) {
+        return users.find(u => u.userId === userId);
+    }
+
+    function userName(userId) {
+        const u = findUser(userId);
+        return u ? u.username : ('用户' + userId);
+    }
+
+    /** 把 categoryId 翻译成分类名 */
+    function categoryName(categoryId) {
+        if (!categoryId) {
+            return '未分类';
+        }
+        const c = categories.find(item => item.categoryId === categoryId);
+        return c ? c.name : ('分类' + categoryId);
+    }
+
+    /** 后端返回的时间是 2026-09-20T10:52:00 这种格式，把中间的 T 换成空格 */
+    function formatTime(time) {
+        return time ? time.replace('T', ' ').substring(0, 16) : '';
+    }
+
+    /** 把时间转成数字，用来排序（评论列表按时间倒序返回，回复要自己按正序排） */
+    function timeValue(time) {
+        const t = time ? new Date(time).getTime() : 0;
+        return isNaN(t) ? 0 : t;
+    }
+
+    /**
+     * 转义 HTML 特殊字符。
+     * 用户输入的内容（标题、正文、评论）直接拼进页面会有风险 ——
+     * 万一有人发的内容里带 <script> 标签，浏览器会当成代码执行。
+     * 转义之后它们就只是普通文字了。
+     */
+    function escapeHtml(text) {
+        if (text === null || text === undefined) {
+            return '';
+        }
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    /** 右下角弹一条提示，3 秒后自动消失 */
+    function toast(message, type) {
+        const box = document.getElementById('toast');
+        const item = document.createElement('div');
+        item.className = 'toast-item ' + (type === 'ok' ? 'ok' : 'err');
+        item.textContent = message;
+        box.appendChild(item);
+        setTimeout(() => item.remove(), 3000);
+    }
+
+    /** 往日志区追加一行 */
+    function addLog(text, type) {
+        const log = document.getElementById('log');
+        const line = document.createElement('div');
+        line.className = 'log-line ' + (type || '');
+        line.textContent = text;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;   // 自动滚到最新一条
+    }
+
+    function clearLog() {
+        document.getElementById('log').innerHTML = '';
+    }
+
+    // 页面打开就跑
+    init();
+</script>
+</body>
+</html>
