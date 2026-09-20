@@ -106,7 +106,11 @@ public class ArticleServiceImpl implements ArticleService {
         }
 
         articleMapper.insert(article);
-        return article;
+
+        // 重新查一次再返回。
+        // 发布时间、修改时间、浏览量都是数据库自动填的，手里这个对象上还是 null，
+        // 回查一次就能拿到真实值，前端拿到手就是完整的一条记录。
+        return articleMapper.selectById(article.getArticleId());
     }
 
     @Override

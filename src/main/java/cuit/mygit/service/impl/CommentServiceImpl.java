@@ -73,7 +73,11 @@ public class CommentServiceImpl implements CommentService {
         }
 
         commentMapper.insert(comment);
-        return comment;
+
+        // 重新查一次再返回。
+        // 评论时间是数据库自动填的，手里这个对象上还是 null，
+        // 回查一次就能拿到真实值。
+        return commentMapper.selectById(comment.getCommentId());
     }
 
     @Override

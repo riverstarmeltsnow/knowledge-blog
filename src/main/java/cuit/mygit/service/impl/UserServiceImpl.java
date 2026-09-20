@@ -75,12 +75,17 @@ public class UserServiceImpl implements UserService {
 
         // ---------- 4. 存库 ----------
         // insert 之后，数据库生成的自增ID会被 MyBatis 回填到 user 对象里，
-        // 所以下面不需要再查一次就能拿到新用户的ID。
+        // 所以下面能直接用 user.getUserId() 拿到新ID。
         userMapper.insert(user);
 
+        // ---------- 5. 把完整数据查回来再返回 ----------
+        // 注册时间 create_time 是数据库自动填的，手里这个 user 对象上还是 null。
+        // 重查一次就能把数据库真正存的值拿回来，前端拿到手就是完整的一条记录。
+        User saved = userMapper.selectById(user.getUserId());
+
         // 返回给外面之前把密码抹掉
-        hidePassword(user);
-        return user;
+        hidePassword(saved);
+        return saved;
     }
 
     @Override
