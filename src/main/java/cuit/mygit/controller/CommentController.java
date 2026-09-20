@@ -57,10 +57,16 @@ public class CommentController {
     }
 
     /**
-     * 发表评论。
+     * 发表评论，或者回复某条已有的评论。
      * <p>
      * POST /comment/add
-     * 请求体：{@code {"content":"写得好","userId":2,"articleId":1}}
+     * <p>
+     * 直接评论文章：{@code {"content":"写得好","userId":2,"articleId":1}}
+     * <p>
+     * 回复 5 号评论：{@code {"content":"同意","userId":2,"articleId":1,"parentId":5}}
+     * <p>
+     * 有没有 parentId 就是"评论"和"回复"的区别。被回复人不用传，
+     * 后端会根据 parentId 自己查出来，防止伪造成"某某回复了你"。
      *
      * @param comment 从请求体 JSON 转换来的评论对象
      * @return 发表成功的评论（带自增ID）
@@ -74,6 +80,8 @@ public class CommentController {
      * 删除评论。
      * <p>
      * DELETE /comment/5?operatorId=2
+     * <p>
+     * 删的是顶层评论时，它下面的回复会一起删掉。
      *
      * @param id         要删的评论ID
      * @param operatorId 操作人ID（当前登录用户）

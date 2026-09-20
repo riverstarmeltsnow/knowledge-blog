@@ -62,6 +62,17 @@ public interface CommentMapper {
     int deleteByArticleId(Integer articleId);
 
     /**
+     * 删除某条顶层评论下面的全部回复 —— 删除顶层评论时配套使用。
+     * <p>
+     * 回复的 parent_id 指向顶层评论，先删回复再删顶层评论，
+     * 否则外键约束会拦住（和"先删评论再删文章"是一个道理）。
+     *
+     * @param parentId 顶层评论ID
+     * @return 影响的行数（删掉几条回复就是几）
+     */
+    int deleteByParentId(Integer parentId);
+
+    /**
      * 删除某个用户的全部评论 —— 删除用户时配套使用。
      *
      * @param userId 用户ID

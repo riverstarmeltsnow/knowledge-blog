@@ -78,16 +78,23 @@ CREATE TABLE `article_tag` (
 
 -- ------------------------------------------------------------
 -- 6. 评论表
--- 同时关联用户（谁评论的）和文章（评论了哪篇）
+-- 关联三张表：用户（谁评论的）、文章（评论了哪篇）、自己（挂在哪条顶层评论下面）
+-- 评论只有两层：parent_id 为 NULL 的是顶层评论，有值的是它下面的回复。
+-- 回复的回复也会被归到同一个顶层评论下，所以 parent_id 永远指向顶层评论，
+-- 不会指向另一条回复。
 -- ------------------------------------------------------------
 CREATE TABLE `comment` (
-  `comment_id`  INT AUTO_INCREMENT PRIMARY KEY   COMMENT '评论ID，主键自增',
-  `content`     VARCHAR(500) NOT NULL            COMMENT '评论内容',
-  `user_id`     INT NOT NULL                     COMMENT '评论人ID，外键关联 user',
-  `article_id`  INT NOT NULL                     COMMENT '所属文章ID，外键关联 article',
-  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '评论时间',
-  CONSTRAINT fk_comment_user    FOREIGN KEY (`user_id`)    REFERENCES `user`(`user_id`),
-  CONSTRAINT fk_comment_article FOREIGN KEY (`article_id`) REFERENCES `article`(`article_id`)
+  `comment_id`        INT AUTO_INCREMENT PRIMARY KEY   COMMENT '评论ID，主键自增',
+  `content`           VARCHAR(500) NOT NULL            COMMENT '评论内容',
+  `user_id`           INT NOT NULL                     COMMENT '评论人ID，外键关联 user',
+  `article_id`        INT NOT NULL                     COMMENT '所属文章ID，外键关联 article',
+  `parent_id`         INT NULL                         COMMENT '所属顶层评论ID，NULL表示这条本身就是顶层评论',
+  `reply_to_user_id`  INT NULL                         COMMENT '被回复人的用户ID，NULL表示直接对文章评论',
+  `create_time`       DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '评论时间',
+  CONSTRAINT fk_comment_user       FOREIGN KEY (`user_id`)           REFERENCES `user`(`user_id`),
+  CONSTRAINT fk_comment_article    FOREIGN KEY (`article_id`)        REFERENCES `article`(`article_id`),
+  CONSTRAINT fk_comment_parent     FOREIGN KEY (`parent_id`)         REFERENCES `comment`(`comment_id`),
+  CONSTRAINT fk_comment_reply_user FOREIGN KEY (`reply_to_user_id`)  REFERENCES `user`(`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='评论表';
 
 -- ============================================================

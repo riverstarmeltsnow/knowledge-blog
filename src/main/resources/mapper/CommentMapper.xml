@@ -9,6 +9,8 @@
                content,
                user_id,
                article_id,
+               parent_id,
+               reply_to_user_id,
                create_time
         FROM comment
         WHERE comment_id = #{commentId}
@@ -19,6 +21,8 @@
                content,
                user_id,
                article_id,
+               parent_id,
+               reply_to_user_id,
                create_time
         FROM comment
         WHERE article_id = #{articleId}
@@ -30,16 +34,20 @@
                content,
                user_id,
                article_id,
+               parent_id,
+               reply_to_user_id,
                create_time
         FROM comment
         WHERE user_id = #{userId}
         ORDER BY create_time DESC
     </select>
 
-    <!-- 新增后把自增主键回填到 commentId 上；评论时间交给数据库默认值 -->
+    <!-- 新增后把自增主键回填到 commentId 上；评论时间交给数据库默认值。
+         parent_id 和 reply_to_user_id 为空就是顶层评论（直接评论文章），
+         MyBatis 会把 Java 的 null 写成数据库的 NULL，正合要求。 -->
     <insert id="insert" parameterType="Comment" useGeneratedKeys="true" keyProperty="commentId">
-        INSERT INTO comment (content, user_id, article_id)
-        VALUES (#{content}, #{userId}, #{articleId})
+        INSERT INTO comment (content, user_id, article_id, parent_id, reply_to_user_id)
+        VALUES (#{content}, #{userId}, #{articleId}, #{parentId}, #{replyToUserId})
     </insert>
 
     <delete id="deleteById">
@@ -50,6 +58,13 @@
     <delete id="deleteByArticleId">
         DELETE FROM comment
         WHERE article_id = #{articleId}
+    </delete>
+
+    <!-- 删某条顶层评论下面的所有回复。必须在删顶层评论之前调用，
+         否则 reply 的 parent_id 外键会拦住删除 -->
+    <delete id="deleteByParentId">
+        DELETE FROM comment
+        WHERE parent_id = #{parentId}
     </delete>
 
     <delete id="deleteByUserId">

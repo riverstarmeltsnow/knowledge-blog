@@ -9,7 +9,7 @@
 import matplotlib
 matplotlib.use('Agg')          # 不弹窗，直接存文件
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Polygon
+from matplotlib.patches import Rectangle, Polygon, FancyArrowPatch
 import matplotlib.font_manager as fm
 
 # ---------- 中文字体（Windows 自带微软雅黑）----------
@@ -69,6 +69,7 @@ R_YONGYOU = (4.3, 1.8)     # Article 拥有 Comment
 R_GUILEI = (4.3, 4.7)      # Category 归类 Article
 R_BIAOZHU = (6.4, 3.4)     # Article 标注 Tag
 R_PINGLUN = (2.4, 0.7)     # User 发表评论 Comment
+R_HUIFU = (6.2, 0.4)       # Comment 回复 Comment（自联系）
 
 # ---------- 先画所有连线（zorder 低，会被图形遮住）----------
 line(USER, R_FABIAO);      line(R_FABIAO, ARTICLE)        # 用户-文章
@@ -77,6 +78,14 @@ line(ARTICLE, R_YONGYOU);  line(R_YONGYOU, COMMENT)       # 文章-评论
 line(CATEGORY, R_GUILEI);  line(R_GUILEI, ARTICLE)        # 分类-文章
 line(ARTICLE, R_BIAOZHU);  line(R_BIAOZHU, TAG)           # 文章-标签
 line(R_BIAOZHU, ART_TAG)                                  # 联系→中间表
+
+# 评论-评论（回复）：自联系，画成实体右侧的一条向外鼓起的弧线。
+# 直接画直线的话两端都落在同一个实体上，看不出是"自己连自己"。
+ax.add_patch(FancyArrowPatch(
+    (5.15, 0.72), (5.15, 0.08),                           # 起止点都在评论实体的右边缘
+    connectionstyle='arc3,rad=-1.15',                     # 负数=向右侧鼓出
+    arrowstyle='-', color='#444444', linewidth=1.3, zorder=1))
+line((5.85, 0.4), R_HUIFU)                                # 弧线顶点 → 菱形
 
 # ---------- 再画实体 ----------
 entity(*USER, '用户\nUSER')
@@ -94,6 +103,7 @@ relation(*R_YONGYOU, '拥有')
 relation(*R_GUILEI, '归类')
 relation(*R_BIAOZHU, '标注')
 relation(*R_PINGLUN, '评论')
+relation(*R_HUIFU, '回复')
 
 # ---------- 标注基数 ----------
 card(1.35, 1.95, '1')     # 用户端：一个用户
@@ -106,6 +116,8 @@ card(4.3, 5.25, '1')      # 分类端：一个分类
 card(4.3, 3.95, 'N')      # 文章端：多篇文章
 card(5.3, 3.2, 'M')       # 文章端：多篇文章
 card(7.6, 3.5, 'N')       # 标签端：多个标签
+card(5.45, 0.92, '1')     # 评论端：一条顶层评论
+card(5.45, -0.12, 'N')    # 评论端：多条回复
 
 # ---------- 图例 ----------
 ax.text(0.15, 7.0, '个人知识博客系统  E-R 图', fontproperties=FONT,

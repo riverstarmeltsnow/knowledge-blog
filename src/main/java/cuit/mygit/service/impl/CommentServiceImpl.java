@@ -9,11 +9,15 @@ import cuit.mygit.mapper.UserMapper;
 import cuit.mygit.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 /**
  * 评论业务实现类。
+ * <p>
+ * 评论支持"回复"：一条顶层评论下面可以挂多条回复，回复永远是两层，
+ * 具体怎么归一化在 {@link #add} 里说明。
  */
 @Service
 public class CommentServiceImpl implements CommentService {
@@ -72,6 +76,31 @@ public class CommentServiceImpl implements CommentService {
             throw new BusinessException("文章不存在：" + comment.getArticleId());
         }
 
+        // ---------- 处理"回复"（parentId 有值就说明这是一条回复）----------
+        // replyToUserId 一律由后端从被回复的评论里推出来，先把前端传的清掉，
+        // 否则谁都能伪造成"某某回复了你"。
+        comment.setReplyToUserId(null);
+        if (comment.getParentId() != null) {
+            Comment parent = commentMapper.selectById(comment.getParentId());
+            if (parent == null) {
+                throw new BusinessException("要回复的评论不存在：" + comment.getParentId());
+            }
+            // 不能跨文章回复，否则评论会挂到另一篇文章的评论树下面
+            if (!parent.getArticleId().equals(comment.getArticleId())) {
+                throw new BusinessException("不能回复其他文章下的评论");
+            }
+
+            // 被回复的这条本身如果也是回复，就把新评论挂到同一个顶层评论下。
+            // 这一步让评论永远只有两层："A 的评论"下面一堆回复，
+            // 不管谁回复谁都在同一层，不用递归就能查、就能删。
+            if (parent.getParentId() != null) {
+                comment.setParentId(parent.getParentId());
+            }
+
+            // 被回复人 = 被回复那条评论的作者，页面靠它显示"回复 @某某"
+            comment.setReplyToUserId(parent.getUserId());
+        }
+
         commentMapper.insert(comment);
 
         // 重新查一次再返回。
@@ -81,6 +110,7 @@ public class CommentServiceImpl implements CommentService {
     }
 
     @Override
+    @Transactional
     public void delete(Integer commentId, Integer operatorId) {
         Comment comment = commentMapper.selectById(commentId);
         if (comment == null) {
@@ -90,7 +120,15 @@ public class CommentServiceImpl implements CommentService {
         // 只能删自己的评论；管理员例外，能删任何人的
         checkPermission(operatorId, comment.getUserId(), "删除这条评论");
 
+        // 删顶层评论时，挂在它下面的回复也要一起删掉，不然会留下没有归属的孤儿回复。
+        // 顺序不能反：回复的 parent_id 指着顶层评论，先删顶层评论会被外键拦住。
+        // 被删的本身就是一条回复时，这句删除影响 0 行（回复下面不会再有回复），
+        // 所以不用先判断它是顶层还是回复，直接删就行。
+        commentMapper.deleteByParentId(commentId);
         commentMapper.deleteById(commentId);
+
+        // @Transactional 保证这两步是一个整体：
+        // 万一第二步失败，第一步删掉的回复会回滚，不会出现"回复没了但评论还在"。
     }
 
     /**
