@@ -276,14 +276,15 @@ class ArticleServiceImplTest {
     @Test
     @DisplayName("贴标签：同一个标签重复贴时拒绝")
     void addTag_duplicate() {
-        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(3)).thenReturn(new Tag());
         // 模拟"这条路已经贴过了"
         when(articleTagMapper.selectOne(any(ArticleTag.class)))
                 .thenReturn(new ArticleTag(1, 3));
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> articleService.addTag(1, 3));
+                () -> articleService.addTag(1, 3, 1));
 
         assertTrue(ex.getMessage().contains("已经贴过"));
         verify(articleTagMapper, never()).insert(any(ArticleTag.class));
@@ -293,10 +294,11 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：标签不存在时拒绝")
     void addTag_tagNotExist() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(99)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> articleService.addTag(1, 99));
+                () -> articleService.addTag(1, 99, 1));
 
         assertTrue(ex.getMessage().contains("标签不存在"));
     }
@@ -305,10 +307,39 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：一切正常时插入关联记录")
     void addTag_success() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(3)).thenReturn(new Tag());
         when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
 
-        articleService.addTag(1, 3);
+        articleService.addTag(1, 3, 1);
+
+        verify(articleTagMapper).insert(any(ArticleTag.class));
+    }
+
+    @Test
+    @DisplayName("贴标签：不是作者也不是管理员时拒绝（不能给别人文章乱贴标签）")
+    void addTag_notOwnerAndNotAdmin() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));       // 操作人 2 号是普通用户
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.addTag(1, 3, 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        assertTrue(ex.getMessage().contains("标签"));
+        // 权限没过，连标签存不存在都不该去查，更不该插数据
+        verify(articleTagMapper, never()).insert(any(ArticleTag.class));
+    }
+
+    @Test
+    @DisplayName("贴标签：管理员可以改别人文章的标签")
+    void addTag_byAdmin() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));       // 管理员
+        when(tagMapper.selectById(3)).thenReturn(new Tag());
+        when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
+
+        articleService.addTag(1, 3, 2);
 
         verify(articleTagMapper).insert(any(ArticleTag.class));
     }
@@ -316,12 +347,27 @@ class ArticleServiceImplTest {
     @Test
     @DisplayName("取消标签：这篇没贴过该标签时拒绝")
     void removeTag_notExist() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> articleService.removeTag(1, 3));
+                () -> articleService.removeTag(1, 3, 1));
 
         assertTrue(ex.getMessage().contains("没有贴过"));
+        verify(articleTagMapper, never()).delete(any(ArticleTag.class));
+    }
+
+    @Test
+    @DisplayName("取消标签：不是作者也不是管理员时拒绝")
+    void removeTag_notOwnerAndNotAdmin() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.removeTag(1, 3, 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
         verify(articleTagMapper, never()).delete(any(ArticleTag.class));
     }
 }

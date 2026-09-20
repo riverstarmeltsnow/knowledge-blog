@@ -168,13 +168,20 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    public void addTag(Integer articleId, Integer tagId) {
+    public void addTag(Integer articleId, Integer tagId, Integer operatorId) {
         if (articleId == null || tagId == null) {
             throw new BusinessException("缺少文章ID或标签ID");
         }
-        if (articleMapper.selectById(articleId) == null) {
+
+        Article article = articleMapper.selectById(articleId);
+        if (article == null) {
             throw new BusinessException("文章不存在：" + articleId);
         }
+
+        // 标签是文章内容的一部分，谁能改文章谁才能改它的标签。
+        // 不校验的话，别人就能往你的文章上乱贴标签了。
+        checkPermission(operatorId, article.getUserId(), "修改这篇文章的标签");
+
         if (tagMapper.selectById(tagId) == null) {
             throw new BusinessException("标签不存在：" + tagId);
         }
@@ -190,10 +197,16 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
-    public void removeTag(Integer articleId, Integer tagId) {
+    public void removeTag(Integer articleId, Integer tagId, Integer operatorId) {
         if (articleId == null || tagId == null) {
             throw new BusinessException("缺少文章ID或标签ID");
         }
+
+        Article article = articleMapper.selectById(articleId);
+        if (article == null) {
+            throw new BusinessException("文章不存在：" + articleId);
+        }
+        checkPermission(operatorId, article.getUserId(), "修改这篇文章的标签");
 
         ArticleTag relation = new ArticleTag(articleId, tagId);
         if (articleTagMapper.selectOne(relation) == null) {

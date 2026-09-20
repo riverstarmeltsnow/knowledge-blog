@@ -73,19 +73,26 @@ public interface ArticleService {
 
     /**
      * 给文章贴一个标签。
+     * <p>
+     * 标签属于文章内容的一部分，所以改标签的权限和改文章一样：
+     * **只有文章作者本人和管理员可以**，别人不能给你的文章乱贴标签。
      *
-     * @param articleId 文章ID
-     * @param tagId     标签ID
-     * @throws cuit.mygit.exception.BusinessException 文章或标签不存在、该标签已经贴过了时抛出
+     * @param articleId  文章ID
+     * @param tagId      标签ID
+     * @param operatorId 操作人ID（当前登录用户）
+     * @throws cuit.mygit.exception.BusinessException 文章或标签不存在、该标签已经贴过了、
+     *                                               操作人既不是作者也不是管理员时抛出
      */
-    void addTag(Integer articleId, Integer tagId);
+    void addTag(Integer articleId, Integer tagId, Integer operatorId);
 
     /**
      * 取消文章上的某个标签。
      *
-     * @param articleId 文章ID
-     * @param tagId     标签ID
-     * @throws cuit.mygit.exception.BusinessException 这篇根本没有贴过这个标签时抛出
+     * @param articleId  文章ID
+     * @param tagId      标签ID
+     * @param operatorId 操作人ID（当前登录用户）
+     * @throws cuit.mygit.exception.BusinessException 文章不存在、这篇根本没有贴过这个标签、
+     *                                               操作人既不是作者也不是管理员时抛出
      */
-    void removeTag(Integer articleId, Integer tagId);
+    void removeTag(Integer articleId, Integer tagId, Integer operatorId);
 }

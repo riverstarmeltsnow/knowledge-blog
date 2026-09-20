@@ -132,37 +132,42 @@ public class ArticleController {
     /**
      * 给文章贴一个标签。
      * <p>
-     * POST /article/1/tag/3
+     * POST /article/1/tag/3?operatorId=1
      * <p>
-     * 贴过的标签不能重复贴，会返回失败提示。
+     * 两条规则：贴过的标签不能重复贴；**只有文章作者本人和管理员能改标签**，
+     * 别人给你的文章贴标签会被拒绝。
      *
-     * @param id    文章ID
-     * @param tagId 标签ID
+     * @param id         文章ID
+     * @param tagId      标签ID
+     * @param operatorId 操作人ID（当前登录用户）
      * @return 不带数据的成功结果
      */
     @PostMapping("/{id}/tag/{tagId}")
     public Result<Void> addTag(@PathVariable("id") Integer id,
-                               @PathVariable("tagId") Integer tagId) {
-        articleService.addTag(id, tagId);
+                               @PathVariable("tagId") Integer tagId,
+                               @RequestParam("operatorId") Integer operatorId) {
+        articleService.addTag(id, tagId, operatorId);
         return Result.success(null);
     }
 
     /**
      * 取消文章上的某个标签。
      * <p>
-     * DELETE /article/1/tag/3
+     * DELETE /article/1/tag/3?operatorId=1
      * <p>
      * 只删"这篇文章和这个标签"之间的关联，标签本身还在，
-     * 别的文章贴的也还在。
+     * 别的文章贴的也还在。同样只有作者本人和管理员能操作。
      *
-     * @param id    文章ID
-     * @param tagId 标签ID
+     * @param id         文章ID
+     * @param tagId      标签ID
+     * @param operatorId 操作人ID（当前登录用户）
      * @return 不带数据的成功结果
      */
     @DeleteMapping("/{id}/tag/{tagId}")
     public Result<Void> removeTag(@PathVariable("id") Integer id,
-                                  @PathVariable("tagId") Integer tagId) {
-        articleService.removeTag(id, tagId);
+                                  @PathVariable("tagId") Integer tagId,
+                                  @RequestParam("operatorId") Integer operatorId) {
+        articleService.removeTag(id, tagId, operatorId);
         return Result.success(null);
     }
 }
