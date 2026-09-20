@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cuit.mygit.mapper.CategoryMapper">
+
+    <select id="selectAll" resultType="Category">
+        SELECT category_id,
+               name,
+               description
+        FROM category
+        ORDER BY category_id ASC
+    </select>
+
+    <select id="selectById" resultType="Category">
+        SELECT category_id,
+               name,
+               description
+        FROM category
+        WHERE category_id = #{categoryId}
+    </select>
+
+    <select id="selectByName" resultType="Category">
+        SELECT category_id,
+               name,
+               description
+        FROM category
+        WHERE name = #{name}
+    </select>
+
+    <!-- 新增后把自增主键回填到 categoryId 上 -->
+    <insert id="insert" parameterType="Category" useGeneratedKeys="true" keyProperty="categoryId">
+        INSERT INTO category (name, description)
+        VALUES (#{name}, #{description})
+    </insert>
+
+    <update id="update" parameterType="Category">
+        UPDATE category
+        SET name        = #{name},
+            description = #{description}
+        WHERE category_id = #{categoryId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM category
+        WHERE category_id = #{categoryId}
+    </delete>
+
+</mapper>

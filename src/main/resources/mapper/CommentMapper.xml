@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cuit.mygit.mapper.CommentMapper">
+
+    <select id="selectById" resultType="Comment">
+        SELECT comment_id,
+               content,
+               user_id,
+               article_id,
+               create_time
+        FROM comment
+        WHERE comment_id = #{commentId}
+    </select>
+
+    <select id="selectByArticleId" resultType="Comment">
+        SELECT comment_id,
+               content,
+               user_id,
+               article_id,
+               create_time
+        FROM comment
+        WHERE article_id = #{articleId}
+        ORDER BY create_time DESC
+    </select>
+
+    <select id="selectByUserId" resultType="Comment">
+        SELECT comment_id,
+               content,
+               user_id,
+               article_id,
+               create_time
+        FROM comment
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 新增后把自增主键回填到 commentId 上；评论时间交给数据库默认值 -->
+    <insert id="insert" parameterType="Comment" useGeneratedKeys="true" keyProperty="commentId">
+        INSERT INTO comment (content, user_id, article_id)
+        VALUES (#{content}, #{userId}, #{articleId})
+    </insert>
+
+    <delete id="deleteById">
+        DELETE FROM comment
+        WHERE comment_id = #{commentId}
+    </delete>
+
+    <delete id="deleteByArticleId">
+        DELETE FROM comment
+        WHERE article_id = #{articleId}
+    </delete>
+
+    <delete id="deleteByUserId">
+        DELETE FROM comment
+        WHERE user_id = #{userId}
+    </delete>
+
+    <!-- 统计条数返回的是数字，所以 resultType 写 int（不是实体类） -->
+    <select id="countByArticleId" resultType="int">
+        SELECT COUNT(*)
+        FROM comment
+        WHERE article_id = #{articleId}
+    </select>
+
+</mapper>

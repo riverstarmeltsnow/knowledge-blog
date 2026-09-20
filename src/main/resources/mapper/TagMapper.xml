@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cuit.mygit.mapper.TagMapper">
+
+    <select id="selectAll" resultType="Tag">
+        SELECT tag_id,
+               name
+        FROM tag
+        ORDER BY tag_id ASC
+    </select>
+
+    <select id="selectById" resultType="Tag">
+        SELECT tag_id,
+               name
+        FROM tag
+        WHERE tag_id = #{tagId}
+    </select>
+
+    <select id="selectByName" resultType="Tag">
+        SELECT tag_id,
+               name
+        FROM tag
+        WHERE name = #{name}
+    </select>
+
+    <!-- 新增后把自增主键回填到 tagId 上 -->
+    <insert id="insert" parameterType="Tag" useGeneratedKeys="true" keyProperty="tagId">
+        INSERT INTO tag (name)
+        VALUES (#{name})
+    </insert>
+
+    <update id="update" parameterType="Tag">
+        UPDATE tag
+        SET name = #{name}
+        WHERE tag_id = #{tagId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM tag
+        WHERE tag_id = #{tagId}
+    </delete>
+
+</mapper>

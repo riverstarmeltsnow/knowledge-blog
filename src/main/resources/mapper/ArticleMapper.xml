@@ -25,4 +25,77 @@
         ORDER BY create_time DESC
     </select>
 
+    <!--
+        详情查询 —— 和上面的列表查询相比，**多查了 content 字段**。
+        正文可能有几万字，列表页几十篇一起查太浪费流量和内存，
+        所以只在看某一篇的时候才把正文取出来。
+    -->
+    <select id="selectById" resultType="Article">
+        SELECT article_id,
+               title,
+               content,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        WHERE article_id = #{articleId}
+    </select>
+
+    <!--
+        新增文章。
+        view_count 不传，让数据库的 DEFAULT 0 生效（新文章当然没人看过）。
+        create_time / update_time 也交给数据库的默认值。
+    -->
+    <insert id="insert" parameterType="Article" useGeneratedKeys="true" keyProperty="articleId">
+        INSERT INTO article (title, content, user_id, category_id)
+        VALUES (#{title}, #{content}, #{userId}, #{categoryId})
+    </insert>
+
+    <!--
+        修改文章：只允许改标题、正文、分类。
+        没写 view_count —— 浏览量只能加不能改，否则前端随便传个数就把浏览量改了。
+        没写 update_time —— 建表时写了 ON UPDATE CURRENT_TIMESTAMP，
+        数据库发现这行被改动会自动把时间刷成当前时间。
+    -->
+    <update id="update" parameterType="Article">
+        UPDATE article
+        SET title       = #{title},
+            content     = #{content},
+            category_id = #{categoryId}
+        WHERE article_id = #{articleId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM article
+        WHERE article_id = #{articleId}
+    </delete>
+
+    <!--
+        浏览量加一。
+        写成 view_count = view_count + 1 是让数据库自己算，
+        而不是先在 Java 里查出来加一再写回去 ——
+        后者在两个人同时打开同一篇文章时会互相覆盖（都读到 10，都写回 11）。
+    -->
+    <update id="increaseViewCount">
+        UPDATE article
+        SET view_count = view_count + 1
+        WHERE article_id = #{articleId}
+    </update>
+
+    <!-- 删分类前先用它判断该分类下还有没有文章 -->
+    <select id="countByCategoryId" resultType="int">
+        SELECT COUNT(*)
+        FROM article
+        WHERE category_id = #{categoryId}
+    </select>
+
+    <!-- 删用户前先用它判断该用户还有没有文章 -->
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*)
+        FROM article
+        WHERE user_id = #{userId}
+    </select>
+
 </mapper>

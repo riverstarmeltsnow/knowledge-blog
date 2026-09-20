@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace 必须和 UserMapper 接口的全限定名完全一致，MyBatis 靠它把接口和 SQL 对上 -->
+<mapper namespace="cuit.mygit.mapper.UserMapper">
+
+    <!--
+        resultType="User" 是简写，完整名是 cuit.mygit.entity.User。
+        能简写是因为 application.properties 里配了 mybatis.type-aliases-package。
+
+        表名 user 在 MySQL 里是关键字（USER() 是个函数），
+        所以用反引号 `user` 包起来，否则 SQL 语法会报错。
+    -->
+
+    <select id="selectAll" resultType="User">
+        SELECT user_id,
+               username,
+               password,
+               email,
+               role,
+               create_time
+        FROM `user`
+        ORDER BY user_id ASC
+    </select>
+
+    <select id="selectById" resultType="User">
+        SELECT user_id,
+               username,
+               password,
+               email,
+               role,
+               create_time
+        FROM `user`
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectByUsername" resultType="User">
+        SELECT user_id,
+               username,
+               password,
+               email,
+               role,
+               create_time
+        FROM `user`
+        WHERE username = #{username}
+    </select>
+
+    <!--
+        useGeneratedKeys="true" + keyProperty="userId" 的作用：
+        插入完成后，把数据库刚生成的自增ID回填到 user 对象的 userId 属性上。
+        少了这两个属性，插入成功后 user.getUserId() 还是 null，
+        后面想拿新ID做别的事就拿不到了。
+
+        没写 create_time，因为数据库建表时给了 DEFAULT CURRENT_TIMESTAMP，
+        会自动填当前时间。
+    -->
+    <insert id="insert" parameterType="User" useGeneratedKeys="true" keyProperty="userId">
+        INSERT INTO `user` (username, password, email, role)
+        VALUES (#{username}, #{password}, #{email}, #{role})
+    </insert>
+
+    <!--
+        没写 create_time：注册时间是一次性的，不该被后续的修改操作覆盖。
+    -->
+    <update id="update" parameterType="User">
+        UPDATE `user`
+        SET username = #{username},
+            password = #{password},
+            email    = #{email},
+            role     = #{role}
+        WHERE user_id = #{userId}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM `user`
+        WHERE user_id = #{userId}
+    </delete>
+
+</mapper>
