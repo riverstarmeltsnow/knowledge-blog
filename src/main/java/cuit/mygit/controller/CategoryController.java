@@ -1,9 +1,11 @@
 package cuit.mygit.controller;
 
 import cuit.mygit.common.Result;
+import cuit.mygit.common.ValidGroup;
 import cuit.mygit.entity.Category;
 import cuit.mygit.service.CategoryService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -57,7 +59,8 @@ public class CategoryController {
      * 名称重复时会返回 {@code {"code":500,"msg":"分类名称已存在：学习笔记"}}。
      */
     @PostMapping("/add")
-    public Result<Category> add(@RequestBody Category category) {
+    public Result<Category> add(
+            @Validated(ValidGroup.Create.class) @RequestBody Category category) {
         return Result.success(categoryService.add(category));
     }
 
@@ -66,9 +69,13 @@ public class CategoryController {
      * <p>
      * PUT /category/update
      * 请求体必须带 categoryId。
+     * <p>
+     * 分组用 Update：新增时 ID 是数据库生成的，提交时还没有；
+     * 修改时必须带上 ID，否则不知道改哪一条。规则见 {@link ValidGroup}。
      */
     @PutMapping("/update")
-    public Result<Void> update(@RequestBody Category category) {
+    public Result<Void> update(
+            @Validated(ValidGroup.Update.class) @RequestBody Category category) {
         categoryService.update(category);
         return Result.success(null);
     }

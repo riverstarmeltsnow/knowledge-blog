@@ -1,9 +1,11 @@
 package cuit.mygit.controller;
 
 import cuit.mygit.common.Result;
+import cuit.mygit.common.ValidGroup;
 import cuit.mygit.entity.User;
 import cuit.mygit.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,7 +45,8 @@ public class UserController {
      * @return 注册成功的用户（**不含密码**）
      */
     @PostMapping("/register")
-    public Result<User> register(@RequestBody User user) {
+    public Result<User> register(
+            @Validated(ValidGroup.Create.class) @RequestBody User user) {
         return Result.success(userService.register(user));
     }
 
@@ -96,12 +99,18 @@ public class UserController {
      * 请求体必须带 userId，例如：{@code {"userId":1,"email":"new@b.com"}}
      * <p>
      * 只传 email 也可以，其余字段会保留原值。
+     * <p>
+     * 这里用 Update 分组，所以用户名和密码为空也<b>不会</b>被拦下 ——
+     * 它们的"必填"只写在新增分组里。要是用 Create 分组，
+     * 上面这个只改邮箱的请求就会被判成"用户名不能为空"直接拒绝，
+     * 用户想改个邮箱还得把用户名密码重新填一遍。
      *
      * @param user 要修改的用户
      * @return 不带数据的成功结果
      */
     @PutMapping("/update")
-    public Result<Void> update(@RequestBody User user) {
+    public Result<Void> update(
+            @Validated(ValidGroup.Update.class) @RequestBody User user) {
         userService.update(user);
         return Result.success(null);
     }

@@ -1,5 +1,10 @@
 package cuit.mygit.entity;
 
+import cuit.mygit.common.ValidGroup;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
 import java.time.LocalDateTime;
 
 /**
@@ -16,19 +21,28 @@ import java.time.LocalDateTime;
  * 评论只有两层：顶层评论 + 它下面的回复。
  * 回复的回复也会被归到同一个顶层评论下（Service 层负责"提级"），
  * 所以 parent_id 永远指向顶层评论，不会指到另一条回复上。
+ * <p>
+ * <b>注意这里的校验注解全都只写 {@code Create} 分组</b>，没有一条是 Update ——
+ * 因为评论压根没有"修改"这个操作。评论发出去就固定了，写错了只能删掉重发，
+ * 所以整个系统里只有它是完整的增删查、没有改。
  */
 public class Comment {
 
     /** 评论ID，主键自增 */
     private Integer commentId;
 
-    /** 评论内容 */
+    /** 评论内容。长度上限跟着数据库的 VARCHAR(500) 走 */
+    @NotBlank(message = "评论内容不能为空", groups = ValidGroup.Create.class)
+    @Size(max = 500, message = "评论内容不能超过 500 个字符",
+            groups = ValidGroup.Create.class)
     private String content;
 
     /** 评论人ID，外键关联 user 表 */
+    @NotNull(message = "缺少评论人ID", groups = ValidGroup.Create.class)
     private Integer userId;
 
     /** 所属文章ID，外键关联 article 表 */
+    @NotNull(message = "缺少文章ID", groups = ValidGroup.Create.class)
     private Integer articleId;
 
     /**

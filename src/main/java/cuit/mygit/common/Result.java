@@ -33,11 +33,25 @@ public class Result<T> {
     }
 
     /**
-     * 失败时调用，只带错误提示
+     * 失败时调用，只带错误提示。业务上的失败统一用 500
      */
     public static <T> Result<T> error(String msg) {
+        return error(500, msg);
+    }
+
+    /**
+     * 失败时调用，自定义状态码。
+     * <p>
+     * 平时用不上（业务失败一律 500），主要是给"资源不存在"这类
+     * 语义上不该算 500 的情况留个口子 —— 找不到页面跟"服务器出错了"
+     * 是两码事，硬塞进 500 会让人误以为后端挂了。
+     *
+     * @param code 状态码，比如 404
+     * @param msg  提示信息
+     */
+    public static <T> Result<T> error(int code, String msg) {
         Result<T> result = new Result<>();
-        result.setCode(500);
+        result.setCode(code);
         result.setMsg(msg);
         return result;
     }

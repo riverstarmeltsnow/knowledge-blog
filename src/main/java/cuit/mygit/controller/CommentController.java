@@ -1,9 +1,11 @@
 package cuit.mygit.controller;
 
 import cuit.mygit.common.Result;
+import cuit.mygit.common.ValidGroup;
 import cuit.mygit.entity.Comment;
 import cuit.mygit.service.CommentService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -72,7 +74,8 @@ public class CommentController {
      * @return 发表成功的评论（带自增ID）
      */
     @PostMapping("/add")
-    public Result<Comment> add(@RequestBody Comment comment) {
+    public Result<Comment> add(
+            @Validated(ValidGroup.Create.class) @RequestBody Comment comment) {
         return Result.success(commentService.add(comment));
     }
 

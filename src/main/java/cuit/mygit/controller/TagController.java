@@ -1,9 +1,11 @@
 package cuit.mygit.controller;
 
 import cuit.mygit.common.Result;
+import cuit.mygit.common.ValidGroup;
 import cuit.mygit.entity.Tag;
 import cuit.mygit.service.TagService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -56,7 +58,8 @@ public class TagController {
      * 请求体：{@code {"name":"Java"}}
      */
     @PostMapping("/add")
-    public Result<Tag> add(@RequestBody Tag tag) {
+    public Result<Tag> add(
+            @Validated(ValidGroup.Create.class) @RequestBody Tag tag) {
         return Result.success(tagService.add(tag));
     }
 
@@ -65,9 +68,13 @@ public class TagController {
      * <p>
      * PUT /tag/update
      * 请求体必须带 tagId。
+     * <p>
+     * 分组用 Update：新增时 ID 是数据库生成的，提交时还没有；
+     * 修改时必须带上 ID，否则不知道改哪一条。规则见 {@link ValidGroup}。
      */
     @PutMapping("/update")
-    public Result<Void> update(@RequestBody Tag tag) {
+    public Result<Void> update(
+            @Validated(ValidGroup.Update.class) @RequestBody Tag tag) {
         tagService.update(tag);
         return Result.success(null);
     }
