@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 文章</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <form class="search-box" id="searchForm">
+                <input type="text" id="searchInput" placeholder="搜索文章标题…" autocomplete="off">
+                <button type="submit" title="搜索">搜索</button>
+            </form>
+
+            <div class="who" id="who"></div>
+            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
+        </div>
+    </div>
+</header>
+
+<main class="layout layout-narrow">
+    <!-- 文章本体；内容由 JS 填进来 -->
+    <article class="post-detail" id="postDetail">
+        <div class="loading">正在加载…</div>
+    </article>
+
+    <!-- ==================== 评论区 ==================== -->
+    <section class="comment-section" id="commentSection" hidden>
+        <h2 class="section-title">评论 <span class="count" id="commentCount">0</span></h2>
+
+        <!-- 发表新评论 -->
+        <div class="comment-editor">
+            <textarea id="commentInput" rows="3"
+                      placeholder="说点什么…（发表前请先在右上角选择身份）"></textarea>
+            <div class="editor-foot">
+                <span class="editor-hint" id="editorHint"></span>
+                <button class="btn btn-primary" id="submitComment">发表评论</button>
+            </div>
+        </div>
+
+        <!-- 评论列表 -->
+        <div class="comment-list" id="commentList"></div>
+    </section>
+</main>
+
+<!--
+    回复表单。
+    平时藏在这儿（hidden），点某条评论的"回复"时会被整块挪进那条评论里。
+    做成"一个表单到处挪"而不是每条评论各带一个，是为了用户打字打一半
+    改去回复别人时，已经敲进去的字不会丢。
+-->
+<div class="reply-form" id="replyForm" hidden>
+    <textarea rows="2"></textarea>
+    <div class="editor-foot">
+        <button class="btn" onclick="cancelReply()">取消</button>
+        <button class="btn btn-primary" id="sendReply">回复</button>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 文章详情页 —— 读正文、看标签、发评论。
+     *
+     * 几点需要说明的：
+     *
+     * 1. /article/{id} 这个接口每调一次，数据库里的浏览量就 +1。
+     *    所以整个页面只在开头调一次，后面任何刷新评论之类的操作
+     *    都不能再碰它，否则用户点几下浏览量就飞了。
+     *
+     * 2. 评论只有两层：顶层评论 + 它下面的回复。
+     *    后端返回的是一个扁平列表（带 parentId），要在这里按 parentId
+     *    分成组。回复的回复会被后端"提级"到同一个顶层评论下，
+     *    所以前端只处理两层就够了，不用递归。
+     *
+     * 3. "回复"表单不是每次都新建，而是页面上放一个、需要时用 DOM
+     *    挪到目标评论下面。这样用户打字打一半去点别的回复，
+     *    已经输入的内容不会丢。
+     */
+
+    /** 这一页要用到的数据 */
+    const state = {
+        articleId: null,   // 当前文章ID，从地址栏来
+        post: null,        // 文章详情
+        tags: [],          // 这篇文章已贴的标签
+        allTags: [],       // 系统里全部标签，用来生成"添加标签"下拉
+        comments: [],      // 这篇文章的全部评论（含回复，扁平结构）
+        users: [],         // 全部用户，用来把 userId 显示成名字
+        replyTarget: null  // 正在回复哪条评论的ID；null 表示没在回复
+    };
+
+    // ==================== 启动 ====================
+
+    async function init() {
+        const id = new URLSearchParams(location.search).get('id');
+        if (!id) {
+            showFatal('地址里缺少文章ID，不知道要打开哪一篇。');
+            return;
+        }
+        state.articleId = Number(id);
+
+        // 用户列表（显示名字）和标签表（加标签用）互不依赖，一起请求
+        try {
+            const [users, allTags] = await Promise.all([
+                get('/user/list'),
+                get('/tag/list')
+            ]);
+            state.users = users;
+            state.allTags = allTags;
+        } catch (e) {
+            showFatal('加载基础数据失败：' + e.message);
+            return;
+        }
+
+        initIdentityPicker(state.users, '#identitySelect');
+        renderCurrentIdentity('#who');
+        initSearchBox();
+        bindEvents();
+
+        await loadPost();
+        if (state.post) {
+            await loadComments();
+        }
+    }
+
+    /** 页面级错误：整页只显示一句提示，不显示半截界面 */
+    function showFatal(message) {
+        $('#postDetail').innerHTML = '<div class="empty">'
+            + '<span class="empty-icon">⚠</span>'
+            + '<div class="empty-text">' + escapeHtml(message) + '</div>'
+            + '<a class="btn" href="index.html" style="margin-top:16px">返回首页</a>'
+            + '</div>';
+    }
+
+    // ==================== 加载文章 ====================
+
+    async function loadPost() {
+        try {
+            // 这一次调用会把浏览量 +1，所以只调这一次
+            state.post = await get('/article/' + state.articleId);
+            state.tags = await get('/article/' + state.articleId + '/tags');
+        } catch (e) {
+            showFatal('这篇文章打不开了：' + e.message);
+            return;
+        }
+
+        renderPost();
+    }
+
+    function renderPost() {
+        const post = state.post;
+        const author = nameOfUser(post.userId);
+        // 只有作者本人或管理员能改这篇文章，别人看不到编辑/删除按钮
+        const editable = canTouch(post.userId);
+
+        let html = ''
+            + '<a class="back-link" href="index.html">← 返回列表</a>'
+            + '<div class="post-header">'
+            +   '<h1>' + escapeHtml(post.title) + '</h1>'
+            +   '<div class="post-meta">'
+            +     '<span class="meta-item">' + escapeHtml(author) + '</span>'
+            +     '<span class="meta-item">' + formatTime(post.createTime) + '</span>'
+            +     '<span class="meta-item">' + (post.viewCount || 0) + ' 次浏览</span>'
+            +     (post.updateTime && post.updateTime !== post.createTime
+                        ? '<span class="meta-item">最后修改于 ' + formatTime(post.updateTime) + '</span>'
+                        : '')
+            +   '</div>'
+            + '</div>'
+            // plain 这个类会让 white-space 变成 pre-wrap，把正文里的换行保留下来。
+            // 不加的话用户在 textarea 里敲的回车会被浏览器全吃掉，挤成一坨
+            + '<div class="post-content plain">' + escapeHtml(post.content) + '</div>'
+            + '<div class="tag-row" id="tagBox"></div>'
+            + (editable
+                ? '<div class="detail-actions">'
+                    + '<a class="btn" href="manage.html?edit=' + post.articleId + '">编辑</a>'
+                    + '<button class="btn btn-danger" id="deletePost">删除这篇文章</button>'
+                  + '</div>'
+                : '');
+
+        $('#postDetail').innerHTML = html;
+
+        renderTags();
+        $('#commentSection').hidden = false;
+
+        if (editable) {
+            $('#deletePost').addEventListener('click', removePost);
+        }
+    }
+
+    // ==================== 标签 ====================
+
+    function renderTags() {
+        const box = $('#tagBox');
+        const editable = canTouch(state.post.userId);
+
+        // 已经贴上的标签，做成小药丸；有权限的话每颗后面挂个 ×
+        let html = state.tags.map(tag =>
+            '<span class="tag-chip">' + escapeHtml(tag.name)
+            + (editable
+                ? '<button class="chip-x" title="取消这个标签" onclick="removeTag(' + tag.tagId + ')">×</button>'
+                : '')
+            + '</span>'
+        ).join('');
+
+        // 还没贴过的标签放进下拉框，选一下就贴上去
+        if (editable) {
+            const used = new Set(state.tags.map(t => t.tagId));
+            const rest = state.allTags.filter(t => !used.has(t.tagId));
+
+            if (rest.length) {
+                html += '<select class="tag-add" id="tagAddSelect">'
+                    + '<option value="">+ 添加标签</option>'
+                    + rest.map(t => '<option value="' + t.tagId + '">' + escapeHtml(t.name) + '</option>').join('')
+                    + '</select>';
+            }
+        }
+
+        if (!html) {
+            html = '<span class="meta-item">（这篇文章没有标签）</span>';
+        }
+
+        box.innerHTML = html;
+
+        const select = $('#tagAddSelect');
+        if (select) {
+            select.addEventListener('change', () => {
+                if (select.value) {
+                    addTag(Number(select.value));
+                }
+            });
+        }
+    }
+
+    async function addTag(tagId) {
+        const me = getMe();
+        try {
+            await post(withQuery('/article/' + state.articleId + '/tag/' + tagId,
+                { operatorId: me.userId }));
+            toast('标签已添加', 'ok');
+            // 重新拉一遍标签，让页面显示的和数据库保持一致
+            state.tags = await get('/article/' + state.articleId + '/tags');
+            renderTags();
+        } catch (e) {
+            toast(e.message, 'err');
+            renderTags();   // 失败时把下拉框复位到"未选择"
+        }
+    }
+
+    /** 取消某个标签。写成全局是为了让药丸上的 × 按钮能调到 */
+    async function removeTag(tagId) {
+        const me = getMe();
+        try {
+            await del(withQuery('/article/' + state.articleId + '/tag/' + tagId,
+                { operatorId: me.userId }));
+            toast('标签已取消', 'ok');
+            state.tags = await get('/article/' + state.articleId + '/tags');
+            renderTags();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    async function removePost() {
+        if (!confirm('确定要删除这篇文章吗？\n它下面的评论和标签关联会一起删掉，删了就找不回来了。')) {
+            return;
+        }
+        const me = getMe();
+        try {
+            await del(withQuery('/article/' + state.articleId, { operatorId: me.userId }));
+            toast('文章已删除', 'ok');
+            setTimeout(() => location.href = 'index.html', 800);
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== 评论区 ====================
+
+    async function loadComments() {
+        try {
+            state.comments = await get('/comment/article/' + state.articleId);
+        } catch (e) {
+            toast('评论加载失败：' + e.message, 'err');
+            return;
+        }
+        renderComments();
+    }
+
+    function renderComments() {
+        const list = $('#commentList');
+
+        // 先记下"刚才正在回复谁"。下面重建完要接着回复，
+        // 否则用户打到一半去删了条评论，输入框就没了，白打
+        const keepReplying = state.replyTarget;
+
+        /*
+         * 回复表单可能正挂在某条评论里面，而下面那句 innerHTML 会把
+         * 评论区整个重建 —— 表单元素会被一起销毁，之后 $('#replyForm')
+         * 就变成 null 了，再点"回复"直接报错。
+         *
+         * 所以先把表单拎回 body 藏好，重建完再挂回去。
+         * appendChild 会自动把元素从原来的位置摘走，不用先 remove。
+         */
+        const form = $('#replyForm');
+        if (form) {
+            form.hidden = true;
+            document.body.appendChild(form);
+        }
+        state.replyTarget = null;
+
+        $('#commentCount').textContent = state.comments.length;
+
+        // 顶层评论：没有 parentId 的那些
+        const tops = state.comments.filter(c => !c.parentId);
+
+        if (!tops.length) {
+            list.innerHTML = emptyHtml('还没有评论，来说第一句吧', null, '💬');
+        } else {
+            list.innerHTML = tops.map(top => {
+                // 属于这条顶层评论的回复。后端返回的是倒序，
+                // 这里翻成正序，让对话按时间从上往下读
+                const replies = state.comments
+                    .filter(c => c.parentId === top.commentId)
+                    .sort((a, b) => new Date(a.createTime) - new Date(b.createTime));
+
+                return '<div class="comment-group">'
+                    + commentHtml(top, false)
+                    + '<div class="reply-list">' + replies.map(r => commentHtml(r, true)).join('') + '</div>'
+                    + '</div>';
+            }).join('');
+        }
+
+        // 刚才回复的那条评论如果还在（没被删掉），把回复框接回去
+        if (keepReplying && document.getElementById('comment-' + keepReplying)) {
+            startReply(keepReplying);
+        }
+    }
+
+    /** 一条评论（顶层或回复）的 HTML */
+    function commentHtml(comment, isReply) {
+        const me = getMe();
+        const isMine = me && me.userId === comment.userId;
+
+        // 回复里要显示"回复 @某某"。被回复人由后端算好，
+        // 前端只管显示，不参与判断
+        const replyHint = (isReply && comment.replyToUserId)
+            ? '<span class="reply-to">回复 @' + escapeHtml(nameOfUser(comment.replyToUserId)) + '</span>'
+            : '';
+
+        return '<div class="comment' + (isReply ? ' reply' : '') + '" id="comment-' + comment.commentId + '">'
+            + '<div class="comment-head">'
+            +   '<span class="comment-author' + (isMine ? ' is-mine' : '') + '">'
+            +     escapeHtml(nameOfUser(comment.userId)) + '</span>'
+            +   replyHint
+            +   '<span class="comment-time">' + formatTime(comment.createTime) + '</span>'
+            + '</div>'
+            + '<div class="comment-text">' + escapeHtml(comment.content) + '</div>'
+            + '<div class="comment-actions">'
+            +   '<button onclick="startReply(' + comment.commentId + ')">回复</button>'
+            +   (canTouch(comment.userId)
+                ? '<button class="danger" onclick="removeComment(' + comment.commentId + ')">删除</button>'
+                : '')
+            + '</div>'
+            // 回复表单平时藏在这儿，点"回复"时会被挪到目标评论后面
+            + '</div>';
+    }
+
+    /** 点"回复"：把回复表单挪到这条评论下面 */
+    function startReply(commentId) {
+        if (!getMe()) {
+            toast('请先在右上角选择身份再回复');
+            return;
+        }
+
+        const target = document.getElementById('comment-' + commentId);
+        const form = $('#replyForm');
+
+        // 再点一次同一条 = 收起
+        if (state.replyTarget === commentId) {
+            form.hidden = true;
+            state.replyTarget = null;
+            return;
+        }
+
+        state.replyTarget = commentId;
+        form.hidden = false;
+        target.appendChild(form);
+
+        const input = form.querySelector('textarea');
+        input.placeholder = '回复 @' + nameOfCommentAuthor(commentId) + '…';
+        input.focus();
+    }
+
+    function nameOfCommentAuthor(commentId) {
+        const comment = state.comments.find(c => c.commentId === commentId);
+        return comment ? nameOfUser(comment.userId) : '';
+    }
+
+    /** 发一条评论。parentId 为空就是直接评论文章，有值就是回复 */
+    async function submitComment(content, parentId) {
+        const me = getMe();
+        if (!me) {
+            toast('请先在右上角选择身份再发表');
+            return false;
+        }
+        if (!content.trim()) {
+            toast('评论内容不能是空的');
+            return false;
+        }
+
+        const body = {
+            content: content.trim(),
+            userId: me.userId,
+            articleId: state.articleId
+        };
+        // 只有回复才带 parentId。直接评论文章时不能传这个字段，
+        // 传了 null 和不传是一回事，但少写一个字段更不容易出错
+        if (parentId) {
+            body.parentId = parentId;
+        }
+
+        try {
+            await post('/comment/add', body);
+            toast('发表成功', 'ok');
+            return true;
+        } catch (e) {
+            toast(e.message, 'err');
+            return false;
+        }
+    }
+
+    /** 删除一条评论。写成全局是为了让评论上的删除按钮能调到 */
+    async function removeComment(commentId) {
+        const me = getMe();
+        const isTop = !state.comments.find(c => c.commentId === commentId).parentId;
+        const warning = isTop
+            ? '确定删除这条评论吗？它下面的回复会一起删掉。'
+            : '确定删除这条回复吗？';
+
+        if (!confirm(warning)) {
+            return;
+        }
+        try {
+            await del(withQuery('/comment/' + commentId, { operatorId: me.userId }));
+            toast('已删除', 'ok');
+            await loadComments();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== 事件绑定 ====================
+
+    function bindEvents() {
+        $('#submitComment').addEventListener('click', async () => {
+            const input = $('#commentInput');
+            if (await submitComment(input.value, null)) {
+                input.value = '';
+                await loadComments();
+            }
+        });
+
+        // 提示当前能不能评论 —— 没选身份的话按钮点了也白点，
+        // 提前说清楚比点完再弹错误友好
+        updateEditorHint();
+    }
+
+    function updateEditorHint() {
+        const me = getMe();
+        $('#editorHint').textContent = me
+            ? '当前身份：' + me.username
+            : '还没选身份，发表前请先在右上角选一个';
+    }
+
+    // ==================== 小工具 ====================
+
+    /** 这一页到处都要把 userId 换成名字，包一层省得每次都写 state.users */
+    function nameOfUser(userId) {
+        return userNameOf(state.users, userId);
+    }
+
+    // ==================== 回复表单的事件 ====================
+
+    // 回复表单的按钮不能写在 bindEvents 里 —— 那时候 init 还没跑完，
+    // 而这段代码在脚本最后，元素肯定已经在了
+    $('#sendReply').addEventListener('click', async () => {
+        const input = document.querySelector('#replyForm textarea');
+        if (await submitComment(input.value, state.replyTarget)) {
+            input.value = '';
+            $('#replyForm').hidden = true;
+            state.replyTarget = null;
+            await loadComments();
+        }
+    });
+
+    /** 收起回复框 */
+    function cancelReply() {
+        const form = $('#replyForm');
+        form.querySelector('textarea').value = '';
+        form.hidden = true;
+        state.replyTarget = null;
+    }
+
+    init();
+</script>
+</body>
+</html>

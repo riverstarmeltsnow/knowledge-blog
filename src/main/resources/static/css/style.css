@@ -1,0 +1,1254 @@
+/* ============================================================
+   博客前台的统一样式。
+
+   设计取向是"阅读优先"：米白底、深墨字、衬线标题、宽行距。
+   跟 test.html 那套蓝灰工具风（#2563eb）是两个路子 ——
+   那边是给自己调试接口用的，这边是给访客看文章的。
+
+   所有颜色都收在下面的变量里，想换配色改这一处就够。
+   ============================================================ */
+
+:root {
+    /* 底色和文字 */
+    --bg: #faf9f7;          /* 米白，比纯白柔和，长时间阅读不刺眼 */
+    --surface: #ffffff;     /* 卡片背景 */
+    --ink: #33302e;         /* 正文墨色，不用纯黑 —— 纯黑在浅底上对比过强 */
+    --ink-soft: #78716c;    /* 次要文字：时间、浏览量这些 */
+    --ink-faint: #a8a29e;   /* 更淡的：占位符、禁用态 */
+    --line: #e7e2dc;        /* 分割线 */
+
+    /* 主色：紫罗兰。挑它是因为要跟已有的两套配色都错开 ——
+       test.html 是蓝 #2563eb，同学的 MyBlog 是墨绿 #1f6f5c */
+    --brand: #6d28d9;
+    --brand-deep: #5b21b6;  /* 悬停时压深一档 */
+    --brand-soft: #f5f0ff;  /* 主色的浅底，用在标签、选中态上 */
+
+    /* 语义色 */
+    --danger: #b91c1c;
+    --ok: #15803d;
+
+    --radius: 10px;
+    --radius-sm: 6px;
+
+    /* 阴影给得很轻：卡片浮起来一点点就够，重了会显得脏 */
+    --shadow: 0 1px 2px rgba(51, 48, 46, .04), 0 4px 14px rgba(51, 48, 46, .05);
+    --shadow-hover: 0 2px 4px rgba(51, 48, 46, .06), 0 10px 24px rgba(51, 48, 46, .09);
+
+    /* 标题用衬线、正文用无衬线，是最常见的"阅读型"搭配 */
+    --font-serif: Georgia, "Songti SC", "SimSun", serif;
+    --font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    --font-mono: "Cascadia Code", Consolas, "Courier New", monospace;
+}
+
+/* ============================================================
+   基础重置
+   ============================================================ */
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.7;
+    /* 让字体在不同系统上都渲染得细一点、清楚一点 */
+    -webkit-font-smoothing: antialiased;
+}
+
+a {
+    color: var(--brand);
+    text-decoration: none;
+}
+
+a:hover {
+    color: var(--brand-deep);
+    text-decoration: underline;
+}
+
+h1, h2, h3, h4 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    line-height: 1.35;
+    margin: 0;
+}
+
+/* ============================================================
+   顶部导航栏
+   ============================================================ */
+
+.nav {
+    /* 吸顶：往下滚的时候导航一直在，方便随时搜索或切身份 */
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(250, 249, 247, .92);
+    /* 毛玻璃效果。不支持 backdrop-filter 的浏览器会退化成半透明底，也能看 */
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+}
+
+.nav-inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 24px;
+    height: 62px;
+    display: flex;
+    align-items: center;
+    gap: 26px;
+}
+
+.brand {
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: .3px;
+    white-space: nowrap;
+}
+
+.brand:hover {
+    color: var(--brand);
+    text-decoration: none;
+}
+
+.brand-dot {
+    color: var(--brand);
+}
+
+.nav-links {
+    display: flex;
+    gap: 20px;
+    flex: 1;
+}
+
+.nav-link {
+    color: var(--ink-soft);
+    font-size: 14px;
+    padding: 4px 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+}
+
+.nav-link:hover {
+    color: var(--ink);
+    text-decoration: none;
+}
+
+/* 当前所在页面的那条导航 */
+.nav-link.active {
+    color: var(--brand);
+    border-bottom-color: var(--brand);
+    font-weight: 600;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+/* 搜索框 */
+.search-box {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 0 6px 0 14px;
+    height: 36px;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.search-box:focus-within {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.search-box input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--ink);
+    width: 150px;
+}
+
+.search-box input::placeholder {
+    color: var(--ink-faint);
+}
+
+.search-box button {
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    color: var(--ink-soft);
+    font-size: 15px;
+    padding: 4px 8px;
+    border-radius: 50%;
+    line-height: 1;
+}
+
+.search-box button:hover {
+    color: var(--brand);
+    background: var(--brand-soft);
+}
+
+/* 身份区 */
+.who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+.who-name {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.who-empty {
+    color: var(--ink-faint);
+}
+
+.identity-select {
+    height: 36px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 0 8px;
+    cursor: pointer;
+    max-width: 150px;
+}
+
+.identity-select:focus {
+    outline: none;
+    border-color: var(--brand);
+}
+
+/* 小徽章：管理员之类的标记 */
+.badge {
+    display: inline-block;
+    font-size: 11px;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-weight: 600;
+    letter-spacing: .3px;
+}
+
+.badge-admin {
+    background: var(--brand-soft);
+    color: var(--brand);
+}
+
+/* ============================================================
+   页面主体
+   ============================================================ */
+
+.layout {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 34px 24px 80px;
+}
+
+/* 单栏阅读布局：文章详情、表单页用这个，行宽短一些更好读 */
+.layout-narrow {
+    max-width: 760px;
+}
+
+.page-head {
+    margin-bottom: 26px;
+}
+
+.page-title {
+    font-size: 27px;
+    margin-bottom: 6px;
+}
+
+.page-sub {
+    color: var(--ink-soft);
+    font-size: 14px;
+}
+
+/* 区块小标题 */
+.section-title {
+    font-size: 15px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 34px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+}
+
+/* ============================================================
+   文章卡片
+   ============================================================ */
+
+.post-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.post-card {
+    display: block;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    color: inherit;
+    transition: transform .16s, box-shadow .16s, border-color .16s;
+}
+
+.post-card:hover {
+    text-decoration: none;
+    color: inherit;
+    border-color: #d9d2c9;
+    box-shadow: var(--shadow-hover);
+    /* 往上浮 2px。幅度要小，大了会晕 */
+    transform: translateY(-2px);
+}
+
+.post-title {
+    font-size: 20px;
+    margin-bottom: 10px;
+    color: var(--ink);
+}
+
+.post-card:hover .post-title {
+    color: var(--brand);
+}
+
+.post-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+.meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.meta-icon {
+    opacity: .65;
+}
+
+/* 分类小标 */
+.cat-chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-weight: 500;
+}
+
+.cat-chip:hover {
+    background: var(--brand);
+    color: #fff;
+    text-decoration: none;
+}
+
+/* 标签小标 */
+.tag-chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: #f5f3f0;
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+}
+
+a.tag-chip:hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-color: #ddd0f7;
+    text-decoration: none;
+}
+
+.tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 13px;
+}
+
+/* ============================================================
+   分页条
+   ============================================================ */
+
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-top: 36px;
+    flex-wrap: wrap;
+}
+
+.pager-btn {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color .14s, background .14s, color .14s;
+}
+
+.pager-btn:hover:not(:disabled) {
+    border-color: var(--brand);
+    color: var(--brand);
+}
+
+.pager-btn:disabled {
+    color: var(--ink-faint);
+    cursor: not-allowed;
+    background: #f6f4f1;
+}
+
+/* 当前页 */
+.pager-btn.current {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    font-weight: 600;
+}
+
+.pager-info {
+    margin-left: 10px;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+/* ============================================================
+   按钮
+   ============================================================ */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 18px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background .14s, border-color .14s, color .14s;
+}
+
+.btn:hover:not(:disabled) {
+    border-color: #d9d2c9;
+    background: #faf9f7;
+}
+
+.btn-primary {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    font-weight: 500;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--brand-deep);
+    border-color: var(--brand-deep);
+}
+
+.btn-danger {
+    color: var(--danger);
+    border-color: #f0d5d5;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #fdf3f3;
+    border-color: var(--danger);
+}
+
+.btn-sm {
+    height: 30px;
+    padding: 0 12px;
+    font-size: 13px;
+}
+
+.btn:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+/* ============================================================
+   表单
+   ============================================================ */
+
+.field {
+    margin-bottom: 18px;
+}
+
+.field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    margin-bottom: 7px;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field input[type="email"],
+.field select,
+.field textarea {
+    width: 100%;
+    padding: 10px 13px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    transition: border-color .14s, box-shadow .14s;
+}
+
+.field textarea {
+    resize: vertical;
+    min-height: 110px;
+}
+
+/* 正文输入框用等宽字体，写 Markdown 或代码时对齐好看 */
+.field textarea.content-input {
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    min-height: 260px;
+    line-height: 1.75;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.field-hint {
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 5px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 22px;
+}
+
+/* ============================================================
+   文章详情
+   ============================================================ */
+
+.post-header {
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 30px;
+}
+
+.post-header h1 {
+    font-size: 31px;
+    margin-bottom: 14px;
+}
+
+/* 正文排版 */
+.post-content {
+    font-size: 16.5px;
+    line-height: 1.9;
+    color: #3d3a37;
+    /* 中文段落之间留白比英文大一点更舒服 */
+    margin-bottom: 40px;
+    /* 长单词/URL 自动折行，不然会把页面撑宽 */
+    overflow-wrap: break-word;
+}
+
+.post-content p {
+    margin: 0 0 1.2em;
+}
+
+/* 正文里保留换行：用户输入时换的行要照原样显示 */
+.post-content.plain {
+    white-space: pre-wrap;
+    font-family: var(--font-sans);
+}
+
+/* ============================================================
+   评论区
+   ============================================================ */
+
+.comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.comment {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+}
+
+/* 回复往右缩进，并且左边加一条竖线，一眼能看出层级 */
+.comment.reply {
+    margin-left: 34px;
+    border-left: 3px solid var(--brand-soft);
+    background: #fdfcfa;
+}
+
+.comment-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.comment-author {
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.comment-time {
+    color: var(--ink-faint);
+}
+
+.comment-text {
+    font-size: 14.5px;
+    color: #45413e;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    margin-bottom: 10px;
+}
+
+.comment-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* "回复 @某某" 那个小标记 */
+.reply-to {
+    font-size: 12px;
+    color: var(--brand);
+    background: var(--brand-soft);
+    padding: 2px 7px;
+    border-radius: 4px;
+}
+
+/* ============================================================
+   文章详情页
+   ============================================================ */
+
+/* 返回列表的链接 */
+.back-link {
+    display: inline-block;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    margin-bottom: 18px;
+}
+
+.back-link:hover {
+    color: var(--brand);
+    text-decoration: none;
+}
+
+/* 文章底部的"编辑 / 删除"按钮条 */
+.detail-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 34px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+}
+
+/* 标签药丸上的删除小叉 */
+.chip-x {
+    margin-left: 6px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ink-faint);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.chip-x:hover {
+    color: var(--danger);
+}
+
+/* "添加标签" 的下拉框。做成虚线边框，跟实心的标签药丸区分开，
+   一眼能看出这是"还没贴上、点了才贴"的东西 */
+.tag-add {
+    height: 26px;
+    padding: 0 8px;
+    font-family: var(--font-sans);
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px dashed var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.tag-add:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+}
+
+/* ============================================================
+   评论区
+   ============================================================ */
+
+.comment-section {
+    margin-top: 56px;
+}
+
+/* 标题后面跟的评论条数，弱化处理，不要抢标题的注意力 */
+.section-title .count {
+    margin-left: 6px;
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--ink-faint);
+}
+
+/* 发表评论的输入框。整个框看起来像一张卡片，
+   里面那个 textarea 是"无边框"的，靠外框来圈 */
+.comment-editor {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 26px;
+}
+
+.comment-editor:focus-within {
+    border-color: #ddd0f7;
+}
+
+.comment-editor textarea,
+.reply-form textarea {
+    width: 100%;
+    border: none;
+    outline: none;
+    resize: vertical;
+    background: transparent;
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    line-height: 1.75;
+    color: var(--ink);
+}
+
+.editor-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+/* margin-right: auto 会把提示文字顶到最左边，按钮们留在右边 */
+.editor-hint {
+    margin-right: auto;
+    font-size: 12.5px;
+    color: var(--ink-faint);
+}
+
+/* 一条顶层评论 + 它下面的回复算一组。组内间距小、组间间距大，
+   这样一眼能看出哪些回复是挂在同一条评论底下的 */
+.comment-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.reply-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 自己发的评论，名字后面挂个"我"，方便在长列表里找自己 */
+.comment-author.is-mine::after {
+    content: '我';
+    margin-left: 6px;
+    padding: 1px 5px;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--brand);
+    background: var(--brand-soft);
+    border-radius: 3px;
+    vertical-align: 1px;
+}
+
+/* 评论右下角的"回复 / 删除"，做成文字按钮，不做成方块按钮，
+   否则每条评论底下都蹲两个方块，页面会显得很吵 */
+.comment-actions button {
+    padding: 0;
+    border: none;
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+}
+
+.comment-actions button:hover {
+    color: var(--brand);
+}
+
+.comment-actions button.danger:hover {
+    color: var(--danger);
+}
+
+/* 回复框。它平时藏在页面底部，点"回复"时被整个挪进某条评论里 */
+.reply-form {
+    margin-top: 12px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+}
+
+/* ============================================================
+   空状态
+   ============================================================ */
+
+.empty {
+    text-align: center;
+    padding: 64px 24px;
+    color: var(--ink-faint);
+    background: var(--surface);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+}
+
+.empty-icon {
+    font-size: 34px;
+    display: block;
+    margin-bottom: 12px;
+    opacity: .5;
+}
+
+.empty-text {
+    font-size: 15px;
+}
+
+/* 空状态下面那行小字，给个"接下来能干嘛"的建议 */
+.empty-hint {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--ink-faint);
+}
+
+/* 加载中的骨架提示 */
+.loading {
+    text-align: center;
+    padding: 50px;
+    color: var(--ink-faint);
+    font-size: 14px;
+}
+
+/* ============================================================
+   Toast 提示条
+   ============================================================ */
+
+.toast {
+    position: fixed;
+    right: 26px;
+    bottom: 26px;
+    z-index: 999;
+    padding: 12px 20px;
+    border-radius: var(--radius-sm);
+    background: #33302e;
+    color: #fff;
+    font-size: 14px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, .18);
+    /* 初始状态是透明 + 往下偏一点，加上 .toast-show 才会浮上来 */
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity .25s, transform .25s;
+    max-width: 340px;
+}
+
+.toast.toast-show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast-ok {
+    background: var(--ok);
+}
+
+.toast-err {
+    background: var(--danger);
+}
+
+/* ============================================================
+   分类 / 标签浏览页
+   ============================================================ */
+
+.browse-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 30px;
+    align-items: start;
+}
+
+/* 左边整栏。sticky 加在栏上而不是加在每个面板上 ——
+   两个面板各 sticky 一次的话，滚动时会叠到一起互相盖住 */
+.browse-side {
+    position: sticky;
+    top: 86px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    /* 分类和标签加起来可能很长，超出可视范围就自己滚，别把页面撑得没完 */
+    max-height: calc(100vh - 106px);
+    overflow-y: auto;
+}
+
+.side-panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+}
+
+.side-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 13px;
+}
+
+.side-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.side-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 11px;
+    border-radius: var(--radius-sm);
+    color: var(--ink);
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    font-family: var(--font-sans);
+    text-align: left;
+    width: 100%;
+    transition: background .13s, color .13s;
+}
+
+.side-item:hover {
+    background: #f6f4f1;
+    text-decoration: none;
+    color: var(--ink);
+}
+
+.side-item.active {
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-weight: 600;
+}
+
+.side-count {
+    font-size: 12px;
+    color: var(--ink-faint);
+}
+
+.side-item.active .side-count {
+    color: var(--brand);
+}
+
+.tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+/* 标签云里的标签是 <button>（点了要跳转），得把浏览器给按钮的
+   默认边框和背景清掉，再用标签药丸的样子显示 */
+button.tag-chip {
+    font-family: var(--font-sans);
+    cursor: pointer;
+    transition: background .13s, color .13s, border-color .13s;
+}
+
+button.tag-chip:hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-color: #ddd0f7;
+}
+
+/* 当前选中的那个标签 */
+.tag-chip.active {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+}
+
+/* ============================================================
+   管理后台
+   ============================================================ */
+
+.admin-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 26px;
+    overflow-x: auto;
+}
+
+.admin-tab {
+    padding: 11px 18px;
+    border: none;
+    background: transparent;
+    color: var(--ink-soft);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: color .14s, border-color .14s;
+}
+
+.admin-tab:hover {
+    color: var(--ink);
+}
+
+.admin-tab.active {
+    color: var(--brand);
+    border-bottom-color: var(--brand);
+    font-weight: 600;
+}
+
+.admin-panel {
+    display: none;
+}
+
+.admin-panel.active {
+    display: block;
+}
+
+/* 管理用的数据表格 */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: 14px;
+}
+
+.data-table th {
+    text-align: left;
+    padding: 12px 15px;
+    background: #faf9f7;
+    color: var(--ink-soft);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.data-table td {
+    padding: 12px 15px;
+    border-bottom: 1px solid #f2efeb;
+    vertical-align: middle;
+}
+
+.data-table tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table tr:hover td {
+    background: #fdfcfa;
+}
+
+/* 表格里的操作按钮排一行 */
+.row-actions {
+    display: flex;
+    gap: 6px;
+}
+
+/* 表格行里的"编辑 / 删除"。做成文字按钮，别用方块按钮 ——
+   一页几十行，每行蹲两个方块会很吵 */
+.row-actions button {
+    padding: 2px 0;
+    border: none;
+    background: none;
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--brand);
+    cursor: pointer;
+}
+
+.row-actions button:hover {
+    text-decoration: underline;
+}
+
+.row-actions button.danger {
+    color: var(--danger);
+}
+
+/* 表格没有数据时占满整行的那句提示 */
+.table-empty {
+    text-align: center;
+    padding: 40px 15px !important;
+    color: var(--ink-faint);
+}
+
+/* 面板标题 + 右边那个"新增"按钮 */
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.panel-title {
+    font-size: 17px;
+    font-weight: 600;
+}
+
+/* 表单弹层 */
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(51, 48, 46, .38);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 500;
+    padding: 24px;
+}
+
+.modal-mask.open {
+    display: flex;
+}
+
+.modal {
+    background: var(--surface);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 560px;
+    max-height: 86vh;
+    overflow-y: auto;
+    padding: 26px 28px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .2);
+}
+
+.modal-title {
+    font-size: 19px;
+    margin-bottom: 20px;
+}
+
+/* 弹窗底部的按钮条 */
+.modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+/* 页面顶部的提醒条（比如"还没选身份"） */
+.notice {
+    padding: 12px 16px;
+    margin-bottom: 22px;
+    background: var(--brand-soft);
+    border: 1px solid #ddd0f7;
+    border-radius: var(--radius-sm);
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--brand-deep);
+}
+
+/* ============================================================
+   窄屏适配
+   ============================================================ */
+
+@media (max-width: 860px) {
+    .nav-inner {
+        height: auto;
+        flex-wrap: wrap;
+        padding: 12px 18px;
+        gap: 12px;
+    }
+
+    .nav-links {
+        order: 3;
+        width: 100%;
+        flex: none;
+    }
+
+    .layout {
+        padding: 24px 18px 60px;
+    }
+
+    /* 侧栏从"左边一列"变成"上面一块" */
+    .browse-grid {
+        grid-template-columns: 1fr;
+    }
+
+    /* 窄屏下侧栏变成页面顶部的一块，不该再跟着滚，
+       也不该限制高度自己滚 —— 那样会出现"页面里套页面"的滚动条 */
+    .browse-side {
+        position: static;
+        max-height: none;
+        overflow: visible;
+    }
+
+    .comment.reply {
+        margin-left: 16px;
+    }
+
+    .post-header h1 {
+        font-size: 25px;
+    }
+}

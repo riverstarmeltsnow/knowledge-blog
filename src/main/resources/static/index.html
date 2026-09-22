@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 首页</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link active" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <!-- 用 form 包起来是为了能直接按回车提交，不用手写键盘事件 -->
+            <form class="search-box" id="searchForm">
+                <input type="text" id="searchInput" placeholder="搜索文章标题…" autocomplete="off">
+                <button type="submit" title="搜索">搜索</button>
+            </form>
+
+            <div class="who" id="who"></div>
+            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
+        </div>
+    </div>
+</header>
+
+<!-- ==================== 正文 ==================== -->
+<main class="layout">
+    <div class="page-head">
+        <h1 class="page-title" id="pageTitle">最新文章</h1>
+        <p class="page-sub" id="pageSub"></p>
+    </div>
+
+    <div id="listArea">
+        <div class="loading">正在加载…</div>
+    </div>
+
+    <div class="pager" id="pager"></div>
+</main>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 首页 —— 文章列表 + 搜索 + 翻页。
+     *
+     * 这一页有两种状态，靠 URL 上有没有 keyword 参数区分：
+     *   普通状态：分页拉 /article/page，显示页码条
+     *   搜索状态：调 /article/search 一次拿全，不显示页码条
+     *
+     * 搜索用 URL 参数而不是存在 JS 变量里，是为了刷新页面结果还在，
+     * 也能把搜索结果的链接直接发给别人。
+     */
+
+    /** 每页显示几篇 */
+    const PAGE_SIZE = 8;
+
+    /** 这一页要用到的数据 */
+    const state = {
+        page: 1,          // 当前第几页
+        keyword: '',      // 搜索关键字，空字符串表示不是搜索状态
+        users: [],        // 全部用户，用来把 userId 显示成用户名
+        categories: []    // 全部分类，用来把 categoryId 显示成分类名
+    };
+
+    // ==================== 启动 ====================
+
+    async function init() {
+        // 从地址栏读搜索关键字
+        const params = new URLSearchParams(location.search);
+        state.keyword = params.get('keyword') || '';
+        if (state.keyword) {
+            $('#searchInput').value = state.keyword;
+        }
+
+        try {
+            // 这两个请求互不依赖，用 Promise.all 一起发，比一个个等快
+            const [users, categories] = await Promise.all([
+                get('/user/list'),
+                get('/category/list')
+            ]);
+            state.users = users;
+            state.categories = categories;
+        } catch (e) {
+            toast('加载基础数据失败：' + e.message, 'err');
+            return;
+        }
+
+        initIdentityPicker(state.users, '#identitySelect');
+        renderCurrentIdentity('#who');
+        initSearchBox();
+
+        await loadPosts();
+    }
+
+    // ==================== 加载文章列表 ====================
+
+    async function loadPosts() {
+        const area = $('#listArea');
+        area.innerHTML = '<div class="loading">正在加载…</div>';
+
+        try {
+            if (state.keyword) {
+                await loadSearchResult(area);
+            } else {
+                await loadPagedPosts(area);
+            }
+        } catch (e) {
+            area.innerHTML = emptyHtml('加载失败：' + e.message, '检查一下后端是不是还开着', '⚠');
+            $('#pager').innerHTML = '';
+        }
+    }
+
+    /** 搜索状态：一次拿全部结果 */
+    async function loadSearchResult(area) {
+        const posts = await get(withQuery('/article/search', { keyword: state.keyword }));
+
+        $('#pageTitle').textContent = '搜索「' + state.keyword + '」';
+        $('#pageSub').textContent = '找到 ' + posts.length + ' 篇匹配的文章';
+
+        if (!posts.length) {
+            area.innerHTML = emptyHtml('没有找到包含这个关键字的文章',
+                '试试换个词，或者点下面的按钮看全部文章');
+        } else {
+            area.innerHTML = articleListHtml(posts, state.users, state.categories);
+        }
+
+        // 搜索不分页，只给一个"回到全部"的出口
+        $('#pager').innerHTML =
+            '<button class="pager-btn" onclick="backToAll()">← 返回全部文章</button>';
+    }
+
+    /** 普通状态：按页码拉一页 */
+    async function loadPagedPosts(area) {
+        const result = await get(withQuery('/article/page', {
+            page: state.page,
+            size: PAGE_SIZE
+        }));
+
+        $('#pageTitle').textContent = '最新文章';
+        $('#pageSub').textContent = result.total > 0
+            ? '共 ' + result.total + ' 篇文章'
+            : '还没有人发表文章';
+
+        if (!result.list.length) {
+            area.innerHTML = emptyHtml('这里还空着', '去「管理」页面写下第一篇吧');
+            $('#pager').innerHTML = '';
+            return;
+        }
+
+        area.innerHTML = articleListHtml(result.list, state.users, state.categories);
+        renderPager(result.page, result.totalPages);
+    }
+
+    // ==================== 渲染 ====================
+
+    /** 画页码条 */
+    function renderPager(current, totalPages) {
+        const pager = $('#pager');
+
+        // 只有一页就不用显示页码条了，纯属占地方
+        if (totalPages <= 1) {
+            pager.innerHTML = '';
+            return;
+        }
+
+        let html = '<button class="pager-btn"' + (current <= 1 ? ' disabled' : '')
+            + ' onclick="goPage(' + (current - 1) + ')">上一页</button>';
+
+        pageNumbers(current, totalPages).forEach(item => {
+            if (item === '...') {
+                html += '<span class="pager-info">…</span>';
+            } else {
+                html += '<button class="pager-btn' + (item === current ? ' current' : '')
+                    + '" onclick="goPage(' + item + ')">' + item + '</button>';
+            }
+        });
+
+        html += '<button class="pager-btn"' + (current >= totalPages ? ' disabled' : '')
+            + ' onclick="goPage(' + (current + 1) + ')">下一页</button>';
+
+        html += '<span class="pager-info">第 ' + current + ' / ' + totalPages + ' 页</span>';
+
+        pager.innerHTML = html;
+    }
+
+    /**
+     * 算出页码条上要显示哪些数字。
+     *
+     * 页数少就全列出来；页数多就只列"当前页附近"的几个，
+     * 中间断掉的地方用省略号顶上 —— 不然有 100 页时页码条会长到没边。
+     */
+    function pageNumbers(current, total) {
+        if (total <= 7) {
+            return Array.from({ length: total }, (_, i) => i + 1);
+        }
+
+        const pages = [1];
+        const start = Math.max(2, current - 1);
+        const end = Math.min(total - 1, current + 1);
+
+        if (start > 2) {
+            pages.push('...');
+        }
+        for (let i = start; i <= end; i++) {
+            pages.push(i);
+        }
+        if (end < total - 1) {
+            pages.push('...');
+        }
+        pages.push(total);
+
+        return pages;
+    }
+
+    // ==================== 交互 ====================
+
+    /** 翻到第几页。写在全局是为了让页码按钮的 onclick 能调到 */
+    function goPage(page) {
+        state.page = page;
+        loadPosts();
+        // 翻完页滚回顶部，否则用户还停在页面底部，看不到新内容
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    /** 从搜索结果回到普通列表 */
+    function backToAll() {
+        location.href = 'index.html';
+    }
+
+    init();
+</script>
+</body>
+</html>

@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 管理</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link active" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <form class="search-box" id="searchForm">
+                <input type="text" id="searchInput" placeholder="搜索文章标题…" autocomplete="off">
+                <button type="submit" title="搜索">搜索</button>
+            </form>
+
+            <div class="who" id="who"></div>
+            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
+        </div>
+    </div>
+</header>
+
+<main class="layout">
+    <div class="page-head">
+        <h1 class="page-title">管理后台</h1>
+        <p class="page-sub" id="pageSub"></p>
+    </div>
+
+    <!-- 没选身份时顶上挂一条提醒。后端对分类/标签/用户这些接口
+         没有做身份校验（实验里还没做登录会话），所以这只是提醒，
+         不是拦路虎；但删除文章是**真的**需要身份，后端会拒绝 -->
+    <div class="notice" id="notice" hidden></div>
+
+    <!-- ==================== 标签页 ==================== -->
+    <div class="admin-tabs">
+        <button class="admin-tab active" data-tab="article">文章</button>
+        <button class="admin-tab" data-tab="category">分类</button>
+        <button class="admin-tab" data-tab="tag">标签</button>
+        <button class="admin-tab" data-tab="user">用户</button>
+    </div>
+
+    <!-- ---------- 文章 ---------- -->
+    <section class="admin-panel active" id="panel-article">
+        <div class="panel-head">
+            <h2 class="panel-title">全部文章</h2>
+            <button class="btn btn-primary" onclick="openArticleForm(null)">写新文章</button>
+        </div>
+        <table class="data-table">
+            <thead>
+            <tr>
+                <th style="width:56px">ID</th>
+                <th>标题</th>
+                <th style="width:100px">作者</th>
+                <th style="width:100px">分类</th>
+                <th style="width:74px">浏览量</th>
+                <th style="width:110px">发表时间</th>
+                <th style="width:120px">操作</th>
+            </tr>
+            </thead>
+            <tbody id="articleRows"></tbody>
+        </table>
+    </section>
+
+    <!-- ---------- 分类 ---------- -->
+    <section class="admin-panel" id="panel-category">
+        <div class="panel-head">
+            <h2 class="panel-title">分类</h2>
+            <button class="btn btn-primary" onclick="openCategoryForm(null)">新增分类</button>
+        </div>
+        <table class="data-table">
+            <thead>
+            <tr>
+                <th style="width:56px">ID</th>
+                <th style="width:180px">名称</th>
+                <th>描述</th>
+                <th style="width:90px">文章数</th>
+                <th style="width:120px">操作</th>
+            </tr>
+            </thead>
+            <tbody id="categoryRows"></tbody>
+        </table>
+    </section>
+
+    <!-- ---------- 标签 ---------- -->
+    <section class="admin-panel" id="panel-tag">
+        <div class="panel-head">
+            <h2 class="panel-title">标签</h2>
+            <button class="btn btn-primary" onclick="openTagForm(null)">新增标签</button>
+        </div>
+        <table class="data-table">
+            <thead>
+            <tr>
+                <th style="width:56px">ID</th>
+                <th>名称</th>
+                <th style="width:120px">操作</th>
+            </tr>
+            </thead>
+            <tbody id="tagRows"></tbody>
+        </table>
+    </section>
+
+    <!-- ---------- 用户 ---------- -->
+    <section class="admin-panel" id="panel-user">
+        <div class="panel-head">
+            <h2 class="panel-title">用户</h2>
+            <button class="btn btn-primary" onclick="openUserForm(null)">新增用户</button>
+        </div>
+        <table class="data-table">
+            <thead>
+            <tr>
+                <th style="width:56px">ID</th>
+                <th style="width:150px">用户名</th>
+                <th>邮箱</th>
+                <th style="width:100px">角色</th>
+                <th style="width:110px">注册时间</th>
+                <th style="width:120px">操作</th>
+            </tr>
+            </thead>
+            <tbody id="userRows"></tbody>
+        </table>
+    </section>
+</main>
+
+<!-- ==================== 通用弹窗 ==================== -->
+<!-- 四个模块的新增/编辑共用这一个弹窗，靠 JS 换里面的表单。
+     每个模块各做一个弹窗的话，光 HTML 就要多写两百行 -->
+<div class="modal-mask" id="modalMask">
+    <div class="modal">
+        <h3 class="modal-title" id="modalTitle"></h3>
+        <div id="modalBody"></div>
+        <div class="modal-foot">
+            <button class="btn" onclick="closeModal()">取消</button>
+            <button class="btn btn-primary" id="modalSave">保存</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 管理后台 —— 文章 / 分类 / 标签 / 用户的增删改查。
+     *
+     * 这个页面做的事，说白了就是把后端那些接口挨个接上按钮，
+     * 所以在数据这一层没什么花活儿：四个模块的数据一次性全拉下来，
+     * 存进 state，之后增删改成功就重新拉一遍，页面永远显示数据库里的真实情况。
+     *
+     * 为什么每次都全量重拉、而不是在本地数组里改一改？
+     * 因为后端的删除是有牵连的 —— 删一个分类会牵连它的文章、
+     * 删一篇文章会带走评论和标签关联。本地改很容易漏掉这些连锁反应，
+     * 显示出来的东西就跟数据库对不上了。多一次请求换个"所见即所得"，划算。
+     */
+
+    const state = {
+        articles: [],
+        categories: [],
+        tags: [],
+        users: []
+    };
+
+    /** 弹窗上那个"保存"按钮当前该干什么。由 openModal 换掉 */
+    let modalSaveHandler = null;
+
+    // ==================== 启动 ====================
+
+    async function init() {
+        await loadAll();
+
+        initIdentityPicker(state.users, '#identitySelect');
+        renderCurrentIdentity('#who');
+        initSearchBox();
+
+        bindTabs();
+        bindModal();
+        updateNotice();
+
+        // 从文章详情页点"编辑"跳过来时带着 ?edit=3，直接帮他打开那篇
+        const editId = new URLSearchParams(location.search).get('edit');
+        if (editId) {
+            switchTab('article');
+            await openArticleForm(Number(editId));
+        }
+    }
+
+    /** 把四个模块的数据全拉一遍 */
+    async function loadAll() {
+        try {
+            const [articles, categories, tags, users] = await Promise.all([
+                get('/article/list'),
+                get('/category/list'),
+                get('/tag/list'),
+                get('/user/list')
+            ]);
+            state.articles = articles;
+            state.categories = categories;
+            state.tags = tags;
+            state.users = users;
+        } catch (e) {
+            toast('加载数据失败：' + e.message, 'err');
+            return;
+        }
+
+        renderAll();
+    }
+
+    function renderAll() {
+        renderArticles();
+        renderCategories();
+        renderTags();
+        renderUsers();
+
+        $('#pageSub').textContent =
+            state.articles.length + ' 篇文章 · '
+            + state.categories.length + ' 个分类 · '
+            + state.tags.length + ' 个标签 · '
+            + state.users.length + ' 位用户';
+    }
+
+    /** 没选身份时在页面顶部挂条提醒 */
+    function updateNotice() {
+        const notice = $('#notice');
+        if (getMe()) {
+            notice.hidden = true;
+            return;
+        }
+        notice.hidden = false;
+        notice.innerHTML = '还没有选择身份。右上角选一个之后再操作，'
+            + '否则删除文章会被后端拒绝 —— 因为后端需要知道"是谁在删"。';
+    }
+
+    // ==================== 标签页切换 ====================
+
+    function bindTabs() {
+        $$('.admin-tab').forEach(tab => {
+            tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+        });
+    }
+
+    function switchTab(name) {
+        $$('.admin-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === name);
+        });
+        $$('.admin-panel').forEach(panel => {
+            panel.classList.toggle('active', panel.id === 'panel-' + name);
+        });
+    }
+
+    // ==================== 弹窗 ====================
+
+    function bindModal() {
+        $('#modalSave').addEventListener('click', async () => {
+            if (modalSaveHandler) {
+                await modalSaveHandler();
+            }
+        });
+
+        // 点遮罩空白处关闭。注意判断 target —— 不判断的话
+        // 点弹窗里的任何地方都会冒泡到遮罩上，输入框根本点不进去
+        $('#modalMask').addEventListener('click', event => {
+            if (event.target === $('#modalMask')) {
+                closeModal();
+            }
+        });
+
+        // Esc 关闭
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                closeModal();
+            }
+        });
+    }
+
+    /**
+     * 打开弹窗。
+     *
+     * @param {string} title 标题
+     * @param {string} bodyHtml 表单内容
+     * @param {Function} onSave 点"保存"时执行；返回 Promise，抛异常就不关窗
+     */
+    function openModal(title, bodyHtml, onSave) {
+        $('#modalTitle').textContent = title;
+        $('#modalBody').innerHTML = bodyHtml;
+        modalSaveHandler = onSave;
+        $('#modalMask').classList.add('open');
+
+        // 第一个输入框自动聚焦，省得每次都得先点一下
+        const first = $('#modalBody input, #modalBody textarea');
+        if (first) {
+            first.focus();
+        }
+    }
+
+    function closeModal() {
+        $('#modalMask').classList.remove('open');
+        $('#modalBody').innerHTML = '';
+        modalSaveHandler = null;
+    }
+
+    /** 表单里的一行：标签 + 控件 */
+    function field(label, controlHtml) {
+        return '<div class="field"><label>' + label + '</label>' + controlHtml + '</div>';
+    }
+
+    /** 生成一个下拉框的 option 列表 */
+    function optionsHtml(items, valueKey, labelKey, selected, emptyLabel) {
+        let html = emptyLabel ? '<option value="">' + emptyLabel + '</option>' : '';
+        html += items.map(item => {
+            const value = item[valueKey];
+            return '<option value="' + value + '"'
+                + (value === selected ? ' selected' : '') + '>'
+                + escapeHtml(item[labelKey]) + '</option>';
+        }).join('');
+        return html;
+    }
+
+    // ==================== 一、文章 ====================
+
+    function renderArticles() {
+        const tbody = $('#articleRows');
+
+        if (!state.articles.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="table-empty">'
+                + '还没有文章，点右上角"写新文章"发一篇</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = state.articles.map(article => ''
+            + '<tr>'
+            +   '<td>' + article.articleId + '</td>'
+            +   '<td><a href="post.html?id=' + article.articleId + '">'
+            +     escapeHtml(article.title) + '</a></td>'
+            +   '<td>' + escapeHtml(userNameOf(state.users, article.userId)) + '</td>'
+            +   '<td>' + (categoryNameOf(state.categories, article.categoryId) || '—') + '</td>'
+            +   '<td>' + (article.viewCount || 0) + '</td>'
+            +   '<td>' + formatTime(article.createTime) + '</td>'
+            +   '<td class="row-actions">'
+            +     '<button onclick="openArticleForm(' + article.articleId + ')">编辑</button>'
+            +     '<button class="danger" onclick="deleteArticle(' + article.articleId + ')">删除</button>'
+            +   '</td>'
+            + '</tr>').join('');
+    }
+
+    /**
+     * 打开文章的新增/编辑弹窗。
+     *
+     * @param {number|null} articleId 传 null 是新增，传ID是编辑
+     */
+    async function openArticleForm(articleId) {
+        if (!state.users.length) {
+            toast('还没有用户，先去"用户"页签加一个再发文章');
+            return;
+        }
+
+        let article = { title: '', content: '', userId: '', categoryId: '' };
+
+        if (articleId) {
+            /*
+             * 列表接口 /article/list 是不带正文的（列表页用不上，查出来白费流量），
+             * 所以编辑时得单独去 /article/{id} 拿一次完整内容。
+             *
+             * ⚠️ 副作用：这个接口每调一次浏览量就 +1。也就是说，
+             * 打开一次编辑弹窗，这篇文章的浏览量会平白多 1。
+             * 想要不这样，得让后端再加一个"只读详情、不计数"的接口；
+             * 对实验来说没必要，先这么用着，知道有这回事就行。
+             */
+            try {
+                article = await get('/article/' + articleId);
+            } catch (e) {
+                toast('读取文章失败：' + e.message, 'err');
+                return;
+            }
+        }
+
+        const body = ''
+            + field('标题 *',
+                '<input type="text" id="fTitle" maxlength="200" value="'
+                + escapeHtml(article.title) + '">')
+            + field('作者 *',
+                '<select id="fUserId">'
+                + optionsHtml(state.users, 'userId', 'username', article.userId, null)
+                + '</select>')
+            + field('分类',
+                '<select id="fCategoryId">'
+                + optionsHtml(state.categories, 'categoryId', 'name', article.categoryId, '（不分类）')
+                + '</select>')
+            + field('正文 *',
+                '<textarea id="fContent" rows="10" class="content-input">'
+                + escapeHtml(article.content) + '</textarea>');
+
+        openModal(articleId ? '编辑文章' : '写新文章', body, async () => {
+            const payload = {
+                title: $('#fTitle').value.trim(),
+                content: $('#fContent').value.trim(),
+                userId: Number($('#fUserId').value),
+                // 选了"（不分类）"时值是空串，得转成 null，
+                // 否则后端拿到 0 会当成"分类ID是0"，报找不到分类
+                categoryId: $('#fCategoryId').value ? Number($('#fCategoryId').value) : null
+            };
+
+            try {
+                if (articleId) {
+                    payload.articleId = articleId;
+                    await put('/article/update', payload);
+                } else {
+                    await post('/article/add', payload);
+                }
+                toast(articleId ? '已保存' : '发表成功', 'ok');
+                closeModal();
+                await loadAll();
+            } catch (e) {
+                toast(e.message, 'err');
+            }
+        });
+    }
+
+    async function deleteArticle(articleId) {
+        const me = getMe();
+        if (!me) {
+            toast('请先在右上角选择身份 —— 后端要知道是谁在删');
+            return;
+        }
+
+        if (!confirm('确定删除这篇文章吗？\n它下面的评论和标签关联会一起删掉。')) {
+            return;
+        }
+
+        try {
+            await del(withQuery('/article/' + articleId, { operatorId: me.userId }));
+            toast('已删除', 'ok');
+            await loadAll();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== 二、分类 ====================
+
+    function renderCategories() {
+        const tbody = $('#categoryRows');
+
+        if (!state.categories.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="table-empty">还没有分类</td></tr>';
+            return;
+        }
+
+        // 顺带数一下每个分类下有几篇文章
+        const counts = {};
+        state.articles.forEach(article => {
+            if (article.categoryId) {
+                counts[article.categoryId] = (counts[article.categoryId] || 0) + 1;
+            }
+        });
+
+        tbody.innerHTML = state.categories.map(category => ''
+            + '<tr>'
+            +   '<td>' + category.categoryId + '</td>'
+            +   '<td>' + escapeHtml(category.name) + '</td>'
+            +   '<td>' + (escapeHtml(category.description) || '—') + '</td>'
+            +   '<td>' + (counts[category.categoryId] || 0) + '</td>'
+            +   '<td class="row-actions">'
+            +     '<button onclick="openCategoryForm(' + category.categoryId + ')">编辑</button>'
+            +     '<button class="danger" onclick="deleteCategory(' + category.categoryId + ')">删除</button>'
+            +   '</td>'
+            + '</tr>').join('');
+    }
+
+    function openCategoryForm(categoryId) {
+        const category = categoryId
+            ? state.categories.find(c => c.categoryId === categoryId)
+            : { name: '', description: '' };
+
+        const body = ''
+            + field('名称 *',
+                '<input type="text" id="fName" maxlength="50" value="'
+                + escapeHtml(category.name) + '">')
+            + field('描述',
+                '<input type="text" id="fDescription" maxlength="255" value="'
+                + escapeHtml(category.description) + '">');
+
+        openModal(categoryId ? '编辑分类' : '新增分类', body, async () => {
+            const payload = {
+                name: $('#fName').value.trim(),
+                description: $('#fDescription').value.trim()
+            };
+
+            try {
+                if (categoryId) {
+                    payload.categoryId = categoryId;
+                    await put('/category/update', payload);
+                } else {
+                    await post('/category/add', payload);
+                }
+                toast('已保存', 'ok');
+                closeModal();
+                await loadAll();
+            } catch (e) {
+                toast(e.message, 'err');
+            }
+        });
+    }
+
+    async function deleteCategory(categoryId) {
+        if (!confirm('确定删除这个分类吗？\n如果下面还有文章，后端会拒绝 —— 要先把那些文章改到别的分类。')) {
+            return;
+        }
+        try {
+            await del('/category/' + categoryId);
+            toast('已删除', 'ok');
+            await loadAll();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== 三、标签 ====================
+
+    function renderTags() {
+        const tbody = $('#tagRows');
+
+        if (!state.tags.length) {
+            tbody.innerHTML = '<tr><td colspan="3" class="table-empty">还没有标签</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = state.tags.map(tag => ''
+            + '<tr>'
+            +   '<td>' + tag.tagId + '</td>'
+            +   '<td>' + escapeHtml(tag.name) + '</td>'
+            +   '<td class="row-actions">'
+            +     '<button onclick="openTagForm(' + tag.tagId + ')">编辑</button>'
+            +     '<button class="danger" onclick="deleteTag(' + tag.tagId + ')">删除</button>'
+            +   '</td>'
+            + '</tr>').join('');
+    }
+
+    function openTagForm(tagId) {
+        const tag = tagId
+            ? state.tags.find(t => t.tagId === tagId)
+            : { name: '' };
+
+        const body = field('名称 *',
+            '<input type="text" id="fName" maxlength="50" value="'
+            + escapeHtml(tag.name) + '">');
+
+        openModal(tagId ? '编辑标签' : '新增标签', body, async () => {
+            const payload = { name: $('#fName').value.trim() };
+
+            try {
+                if (tagId) {
+                    payload.tagId = tagId;
+                    await put('/tag/update', payload);
+                } else {
+                    await post('/tag/add', payload);
+                }
+                toast('已保存', 'ok');
+                closeModal();
+                await loadAll();
+            } catch (e) {
+                toast(e.message, 'err');
+            }
+        });
+    }
+
+    async function deleteTag(tagId) {
+        if (!confirm('确定删除这个标签吗？\n贴了它的文章不会被删，只是这个标签从那些文章上摘掉。')) {
+            return;
+        }
+        try {
+            await del('/tag/' + tagId);
+            toast('已删除', 'ok');
+            await loadAll();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== 四、用户 ====================
+
+    function renderUsers() {
+        const tbody = $('#userRows');
+
+        if (!state.users.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="table-empty">还没有用户</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = state.users.map(user => ''
+            + '<tr>'
+            +   '<td>' + user.userId + '</td>'
+            +   '<td>' + escapeHtml(user.username) + '</td>'
+            +   '<td>' + (escapeHtml(user.email) || '—') + '</td>'
+            +   '<td>' + (user.role === 1
+                    ? '<span class="badge badge-admin">管理员</span>'
+                    : '普通用户') + '</td>'
+            +   '<td>' + formatTime(user.createTime) + '</td>'
+            +   '<td class="row-actions">'
+            +     '<button onclick="openUserForm(' + user.userId + ')">编辑</button>'
+            +     '<button class="danger" onclick="deleteUser(' + user.userId + ')">删除</button>'
+            +   '</td>'
+            + '</tr>').join('');
+    }
+
+    function openUserForm(userId) {
+        const user = userId
+            ? state.users.find(u => u.userId === userId)
+            : { username: '', email: '', role: 0 };
+
+        const body = ''
+            + field('用户名 *',
+                '<input type="text" id="fUsername" maxlength="50" value="'
+                + escapeHtml(user.username) + '"' + (userId ? ' disabled' : '') + '>'
+                + (userId ? '<div class="field-hint">用户名注册后不能改</div>' : ''))
+            + field('密码 ' + (userId ? '' : '*'),
+                '<input type="password" id="fPassword" maxlength="100"'
+                + ' placeholder="' + (userId ? '留空表示不改密码' : '') + '">')
+            + field('邮箱',
+                '<input type="email" id="fEmail" maxlength="100" value="'
+                + escapeHtml(user.email) + '">')
+            + field('角色',
+                '<select id="fRole">'
+                + '<option value="0"' + (user.role !== 1 ? ' selected' : '') + '>普通用户</option>'
+                + '<option value="1"' + (user.role === 1 ? ' selected' : '') + '>管理员</option>'
+                + '</select>');
+
+        openModal(userId ? '编辑用户' : '新增用户', body, async () => {
+            const password = $('#fPassword').value;
+
+            try {
+                if (userId) {
+                    const payload = {
+                        userId: userId,
+                        email: $('#fEmail').value.trim(),
+                        role: Number($('#fRole').value)
+                    };
+                    // 密码留空就整个字段都不传，后端会保留原密码。
+                    // 传个空串过去会被 @Size 之外的服务层逻辑判成"改成空密码"
+                    if (password) {
+                        payload.password = password;
+                    }
+                    await put('/user/update', payload);
+                } else {
+                    await post('/user/register', {
+                        username: $('#fUsername').value.trim(),
+                        password: password,
+                        email: $('#fEmail').value.trim(),
+                        role: Number($('#fRole').value)
+                    });
+                }
+                toast('已保存', 'ok');
+                closeModal();
+                await loadAll();
+            } catch (e) {
+                toast(e.message, 'err');
+            }
+        });
+    }
+
+    async function deleteUser(userId) {
+        const me = getMe();
+        if (me && me.userId === userId) {
+            // 删掉自己之后身份就失效了，不如先拦住 —— 这不是后端规则，
+            // 纯粹是前端不想让你把自己弄进一个尴尬的状态
+            toast('不能删掉当前正在用的身份，先换个身份再删');
+            return;
+        }
+
+        if (!confirm('确定删除这个用户吗？\n如果他还写过文章，后端会拒绝 —— 要先把那些文章处理掉。')) {
+            return;
+        }
+        try {
+            await del('/user/' + userId);
+            toast('已删除', 'ok');
+            await loadAll();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>

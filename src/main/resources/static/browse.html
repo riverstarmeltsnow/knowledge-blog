@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 分类与标签</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link active" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <form class="search-box" id="searchForm">
+                <input type="text" id="searchInput" placeholder="搜索文章标题…" autocomplete="off">
+                <button type="submit" title="搜索">搜索</button>
+            </form>
+
+            <div class="who" id="who"></div>
+            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
+        </div>
+    </div>
+</header>
+
+<main class="layout">
+    <div class="browse-grid">
+
+        <!-- ==================== 左栏：分类 + 标签 ==================== -->
+        <aside class="browse-side">
+            <div class="side-panel">
+                <div class="side-title">分类</div>
+                <div class="side-list" id="categoryList"></div>
+            </div>
+
+            <div class="side-panel">
+                <div class="side-title">标签</div>
+                <div class="tag-cloud" id="tagCloud"></div>
+            </div>
+        </aside>
+
+        <!-- ==================== 右栏：文章列表 ==================== -->
+        <section>
+            <div class="page-head">
+                <h1 class="page-title" id="pageTitle">全部文章</h1>
+                <p class="page-sub" id="pageSub"></p>
+            </div>
+
+            <div id="listArea">
+                <div class="loading">正在加载…</div>
+            </div>
+        </section>
+
+    </div>
+</main>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 分类与标签浏览页。
+     *
+     * 这一页的问题在于"每个分类下有几十篇文章"这种数字怎么拿到 ——
+     * 后端没有专门的计数接口，只有"查某分类下的文章列表"。
+     * 要是给每个分类都发一次请求，页面上有 10 个分类就是 10 个请求。
+     *
+     * 所以改成：开头用 /article/list 把全部文章拉一次，
+     * 在浏览器里数一数每个分类各有多少篇。文章再多也只有一个请求。
+     *
+     * 标签那边连这个都省了 —— 要知道某个标签下有几篇文章，
+     * 得先知道每篇文章贴了哪些标签，那就变成"文章数 × 1"个请求了。
+     * 标签云不显示数量，是权衡之后的结果，不是漏做了。
+     *
+     * 选中哪个分类/标签记在地址栏参数里（?type=tag&id=3），
+     * 刷新还在，也能直接发链接给别人。
+     */
+
+    const state = {
+        type: null,       // 'category' / 'tag'；null 表示没筛选
+        id: null,         // 选中的分类ID或标签ID
+        posts: [],        // 全部文章，用来统计各分类的篇数、也用来显示"全部"
+        categories: [],
+        tags: [],
+        users: []
+    };
+
+    // ==================== 启动 ====================
+
+    async function init() {
+        readStateFromUrl();
+
+        try {
+            // 这四个请求互不依赖，一起发
+            const [posts, categories, tags, users] = await Promise.all([
+                get('/article/list'),
+                get('/category/list'),
+                get('/tag/list'),
+                get('/user/list')
+            ]);
+            state.posts = posts;
+            state.categories = categories;
+            state.tags = tags;
+            state.users = users;
+        } catch (e) {
+            $('#listArea').innerHTML = emptyHtml('加载失败：' + e.message, '检查一下后端是不是还开着', '⚠');
+            return;
+        }
+
+        initIdentityPicker(state.users, '#identitySelect');
+        renderCurrentIdentity('#who');
+        initSearchBox();
+
+        renderSidebar();
+        await loadPosts();
+    }
+
+    /** 从地址栏读出"现在选中的是哪个分类/标签" */
+    function readStateFromUrl() {
+        const params = new URLSearchParams(location.search);
+        const type = params.get('type');
+        const id = params.get('id');
+
+        // type 和 id 必须成对出现。只给了一个就当没选 ——
+        // 手输地址输错一个字，页面也该正常显示"全部文章"，而不是白屏
+        if ((type === 'category' || type === 'tag') && id) {
+            state.type = type;
+            state.id = Number(id);
+        }
+    }
+
+    // ==================== 左栏 ====================
+
+    function renderSidebar() {
+        renderCategoryList();
+        renderTagCloud();
+    }
+
+    function renderCategoryList() {
+        // 一次遍历把所有分类的篇数数出来，比每个分类各 filter 一遍快
+        const counts = {};
+        state.posts.forEach(post => {
+            if (post.categoryId) {
+                counts[post.categoryId] = (counts[post.categoryId] || 0) + 1;
+            }
+        });
+
+        let html = sideItemHtml(null, null, '全部文章', state.posts.length);
+        state.categories.forEach(category => {
+            html += sideItemHtml('category', category.categoryId,
+                category.name, counts[category.categoryId] || 0);
+        });
+
+        $('#categoryList').innerHTML = html;
+    }
+
+    /**
+     * 左栏里的一个可点条目。
+     *
+     * @param {string|null} type 'category' / 'tag'；传 null 就是"全部文章"那一项
+     * @param {number|null} id
+     */
+    function sideItemHtml(type, id, name, count) {
+        // 没选任何筛选时，"全部文章"那项才是高亮的
+        const active = type ? isActive(type, id) : !state.type;
+        const args = type ? "'" + type + "', " + id : 'null, null';
+
+        return '<button class="side-item' + (active ? ' active' : '') + '"'
+            + ' onclick="pick(' + args + ')">'
+            + '<span>' + escapeHtml(name) + '</span>'
+            + '<span class="side-count">' + count + '</span>'
+            + '</button>';
+    }
+
+    function renderTagCloud() {
+        const cloud = $('#tagCloud');
+
+        if (!state.tags.length) {
+            cloud.innerHTML = '<span class="meta-item">还没有标签</span>';
+            return;
+        }
+
+        cloud.innerHTML = state.tags.map(tag =>
+            '<button class="tag-chip' + (isActive('tag', tag.tagId) ? ' active' : '') + '"'
+            + ' onclick="pick(\'tag\', ' + tag.tagId + ')">'
+            + escapeHtml(tag.name) + '</button>'
+        ).join('');
+    }
+
+    /** 判断某个分类/标签是不是当前选中的 */
+    function isActive(type, id) {
+        return state.type === type && state.id === id;
+    }
+
+    /** 点左栏的条目：换筛选条件。写成全局是为了让 onclick 能调到 */
+    function pick(type, id) {
+        location.href = type
+            ? 'browse.html?type=' + type + '&id=' + id
+            : 'browse.html';
+    }
+
+    // ==================== 右栏 ====================
+
+    async function loadPosts() {
+        const area = $('#listArea');
+        area.innerHTML = '<div class="loading">正在加载…</div>';
+
+        let posts;
+        let title;
+        let sub;
+
+        try {
+            if (state.type === 'category') {
+                posts = await get('/article/category/' + state.id);
+                title = categoryNameOf(state.categories, state.id) || '未知分类';
+                sub = '这个分类下有 ' + posts.length + ' 篇文章';
+            } else if (state.type === 'tag') {
+                posts = await get('/article/tag/' + state.id);
+                const tag = state.tags.find(t => t.tagId === state.id);
+                title = '# ' + (tag ? tag.name : '未知标签');
+                sub = '贴了这个标签的文章有 ' + posts.length + ' 篇';
+            } else {
+                // 没筛选时直接用开头拉好的那一份，不再发请求
+                posts = state.posts;
+                title = '全部文章';
+                sub = '共 ' + posts.length + ' 篇';
+            }
+        } catch (e) {
+            area.innerHTML = emptyHtml('加载失败：' + e.message, null, '⚠');
+            return;
+        }
+
+        $('#pageTitle').textContent = title;
+        $('#pageSub').textContent = sub;
+
+        area.innerHTML = posts.length
+            ? articleListHtml(posts, state.users, state.categories)
+            : emptyHtml('这个' + (state.type === 'tag' ? '标签' : '分类') + '下还没有文章',
+                '换个分类看看，或者去写一篇');
+    }
+
+    init();
+</script>
+</body>
+</html>
