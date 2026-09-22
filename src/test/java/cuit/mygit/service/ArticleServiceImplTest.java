@@ -1,5 +1,6 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.PageResult;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.ArticleTag;
 import cuit.mygit.entity.Tag;
@@ -21,9 +22,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -369,5 +372,179 @@ class ArticleServiceImplTest {
 
         assertTrue(ex.getMessage().contains("没有权限"));
         verify(articleTagMapper, never()).delete(any(ArticleTag.class));
+    }
+
+    // ==================== 按作者 / 分类 / 标签筛选 ====================
+
+    @Test
+    @DisplayName("按作者查：把作者ID原样交给 Mapper，返回它给的结果")
+    void listByUserId_success() {
+        when(articleMapper.selectByUserId(2))
+                .thenReturn(Arrays.asList(buildArticle(5, 2), buildArticle(6, 2)));
+
+        List<Article> result = articleService.listByUserId(2);
+
+        assertEquals(2, result.size());
+        verify(articleMapper).selectByUserId(2);
+    }
+
+    @Test
+    @DisplayName("按作者查：没传作者ID时拒绝，不查库")
+    void listByUserId_nullId() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.listByUserId(null));
+
+        assertTrue(ex.getMessage().contains("缺少作者ID"));
+        verify(articleMapper, never()).selectByUserId(any());
+    }
+
+    @Test
+    @DisplayName("按分类查：把分类ID原样交给 Mapper")
+    void listByCategoryId_success() {
+        when(articleMapper.selectByCategoryId(3))
+                .thenReturn(Collections.singletonList(buildArticle(7, 1)));
+
+        assertEquals(1, articleService.listByCategoryId(3).size());
+        verify(articleMapper).selectByCategoryId(3);
+    }
+
+    @Test
+    @DisplayName("按分类查：没传分类ID时拒绝，不查库")
+    void listByCategoryId_nullId() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.listByCategoryId(null));
+
+        assertTrue(ex.getMessage().contains("缺少分类ID"));
+        verify(articleMapper, never()).selectByCategoryId(any());
+    }
+
+    @Test
+    @DisplayName("按标签查：这个标签还没被贴过时返回空列表，而不是报错")
+    void listByTagId_emptyResult() {
+        when(articleMapper.selectByTagId(99)).thenReturn(Collections.emptyList());
+
+        // 查询接口查不到东西属于正常情况。这里要真抛异常的话，
+        // 用户点一个还没人用过的标签就会看到错误提示，像是系统坏了
+        assertTrue(articleService.listByTagId(99).isEmpty());
+    }
+
+    @Test
+    @DisplayName("按标签查：没传标签ID时拒绝，不查库")
+    void listByTagId_nullId() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.listByTagId(null));
+
+        assertTrue(ex.getMessage().contains("缺少标签ID"));
+        verify(articleMapper, never()).selectByTagId(any());
+    }
+
+    // ==================== 关键字搜索 ====================
+
+    @Test
+    @DisplayName("搜索：关键字前后有空格时，去掉空格再拿去查")
+    void searchByTitle_trimKeyword() {
+        when(articleMapper.selectByTitle("MySQL")).thenReturn(Collections.emptyList());
+
+        articleService.searchByTitle("  MySQL  ");
+
+        // 不 trim 的话会拼成 LIKE '% MySQL%'，
+        // 凡是"MySQL"不出现在标题开头的文章，一条都搜不到
+        verify(articleMapper).selectByTitle("MySQL");
+    }
+
+    @Test
+    @DisplayName("搜索：关键字为空或只有空格时拒绝，不查库")
+    void searchByTitle_blankKeyword() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.searchByTitle("   "));
+
+        assertTrue(ex.getMessage().contains("关键字不能为空"));
+        // 空关键字会拼成 LIKE '%%'，等于把整张表都查出来
+        verify(articleMapper, never()).selectByTitle(any());
+    }
+
+    // ==================== 分页 ====================
+
+    @Test
+    @DisplayName("分页：第3页每页10条，跳过的应该是20条")
+    void page_offsetCalculatedFromPageNumber() {
+        when(articleMapper.countAll()).thenReturn(100L);
+        when(articleMapper.selectPage(20, 10)).thenReturn(Collections.emptyList());
+
+        articleService.page(3, 10);
+
+        // 页码是给用户看的（从1数起），偏移量是给 SQL 用的（从0数起），
+        // 两者差一位。算错的表现是"第2页和第1页内容一样"或者莫名跳过一整页
+        verify(articleMapper).selectPage(20, 10);
+    }
+
+    @Test
+    @DisplayName("分页：总页数向上取整 —— 87条每页10条是9页，不是8页")
+    void page_totalPagesRoundsUp() {
+        when(articleMapper.countAll()).thenReturn(87L);
+        when(articleMapper.selectPage(0, 10)).thenReturn(Collections.emptyList());
+
+        PageResult<Article> result = articleService.page(1, 10);
+
+        // 87 ÷ 10 整除得 8，但第 9 页还有 7 条数据。
+        // 用整除的话页码条会少画一页，最后那几篇永远点不到
+        assertEquals(9, result.getTotalPages());
+        assertEquals(87L, result.getTotal());
+        // 第 1 页后面还有，前面当然没有
+        assertTrue(result.isHasNext());
+        assertFalse(result.isHasPrev());
+    }
+
+    @Test
+    @DisplayName("分页：最后一页没有下一页")
+    void page_lastPageHasNoNext() {
+        when(articleMapper.countAll()).thenReturn(87L);
+        when(articleMapper.selectPage(80, 10)).thenReturn(Collections.emptyList());
+
+        PageResult<Article> result = articleService.page(9, 10);
+
+        assertFalse(result.isHasNext());
+        assertTrue(result.isHasPrev());
+    }
+
+    @Test
+    @DisplayName("分页：每页条数超过上限时按上限截断，防止一次拉走整张表")
+    void page_sizeClampedToMax() {
+        when(articleMapper.countAll()).thenReturn(100L);
+        when(articleMapper.selectPage(0, 50)).thenReturn(Collections.emptyList());
+
+        articleService.page(1, 100000);
+
+        // 前端传 10 万进来，实际只给 50 条。
+        // 不设上限的话，一个 ?size=999999 就能把整张表读进内存
+        verify(articleMapper).selectPage(0, 50);
+    }
+
+    @Test
+    @DisplayName("分页：页码小于1时按第1页处理，不报错")
+    void page_pageNumberTooSmall() {
+        when(articleMapper.countAll()).thenReturn(5L);
+        when(articleMapper.selectPage(0, 10)).thenReturn(Collections.emptyList());
+
+        PageResult<Article> result = articleService.page(-3, 10);
+
+        // 翻页翻过头、手动改地址栏上的页码都很常见，
+        // 按边界值处理比弹个错误提示更自然
+        assertEquals(1, result.getPage());
+        verify(articleMapper).selectPage(0, 10);
+    }
+
+    @Test
+    @DisplayName("分页：页码大到偏移量装不下时直接返回空页，不查数据库")
+    void page_offsetOverflow_returnsEmptyPage() {
+        when(articleMapper.countAll()).thenReturn(5L);
+
+        PageResult<Article> result = articleService.page(Integer.MAX_VALUE, 50);
+
+        // (MAX_VALUE-1)×50 早就超出 int 的范围了，硬算会溢出成负数，
+        // 拼进 LIMIT 就成了一条语法错误的 SQL。
+        // 页码大得这么离谱，说明对方不是真想翻页，给个空页就行
+        assertTrue(result.getList().isEmpty());
+        verify(articleMapper, never()).selectPage(anyInt(), anyInt());
     }
 }

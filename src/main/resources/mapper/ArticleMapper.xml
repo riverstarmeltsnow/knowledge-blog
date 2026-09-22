@@ -98,4 +98,120 @@
         WHERE user_id = #{userId}
     </select>
 
+    <!--
+        按作者查文章 —— 点某个人的名字看他写过的全部文章。
+        和 selectAll 一样不查 content：这里返回的也是一份列表。
+    -->
+    <select id="selectByUserId" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 按分类查文章 —— 点分类名看这个分类下的全部文章 -->
+    <select id="selectByCategoryId" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        WHERE category_id = #{categoryId}
+        ORDER BY create_time DESC
+    </select>
+
+    <!--
+        按标签查文章 —— "标签 → 文章"这个方向。
+
+        article 表本身没有标签字段，标签记在中间表 article_tag 里，
+        所以要 JOIN 一次才能筛出"贴了某个标签的文章"。
+
+        给 article 起别名 a：JOIN 之后两张表都有 article_id 这个字段名，
+        不写别名 MySQL 会报"字段名不明确"。
+    -->
+    <select id="selectByTagId" resultType="Article">
+        SELECT a.article_id,
+               a.title,
+               a.user_id,
+               a.category_id,
+               a.view_count,
+               a.create_time,
+               a.update_time
+        FROM article a
+                 INNER JOIN article_tag atg ON a.article_id = atg.article_id
+        WHERE atg.tag_id = #{tagId}
+        ORDER BY a.create_time DESC
+    </select>
+
+    <!--
+        按标题模糊搜索。
+
+        拼 LIKE 的写法很关键：用 CONCAT('%', #{keyword}, '%') 让 MySQL 自己
+        把百分号拼上去，而不是在 Java 里写成 "'%" + keyword + "%'"。
+        后者就是 SQL 注入的入口 —— 用户在搜索框里输入
+        %' OR '1'='1 这种内容，拼出来的 SQL 条件会永远成立，
+        等于把整张表都交出去了。
+
+        这里 #{keyword} 是预编译参数，MyBatis 会把它当成一个普通字符串值
+        交给数据库，里面的引号和百分号都只是"文字"，不会被当成 SQL 语法。
+    -->
+    <select id="selectByTitle" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        WHERE title LIKE CONCAT('%', #{keyword}, '%')
+        ORDER BY create_time DESC
+    </select>
+
+    <!--
+        分页查询。
+
+        LIMIT #{offset}, #{size} 的意思是"跳过 offset 条，然后取 size 条"，
+        注意它认的是偏移量不是页码：
+            第 1 页 → OFFSET 0
+            第 2 页 → OFFSET size
+            第 n 页 → OFFSET (n-1) × size
+        这个换算放在 Service 层做，DAO 只负责"传什么查什么"。
+
+        两个参数都用 @Param 起了名字，所以这里的 #{offset} / #{size}
+        必须和注解里的名字一模一样，写错了启动时报错。
+    -->
+    <select id="selectPage" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        ORDER BY create_time DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <!--
+        文章总数 —— 分页时算总页数要用。
+
+        COUNT(*) 在 MySQL 里返回的是 BIGINT，所以 Java 那边用 long 接，
+        用 int 的话文章超过 21 亿篇就溢出了（虽然不可能，但类型对齐是好习惯）。
+    -->
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM article
+    </select>
+
 </mapper>

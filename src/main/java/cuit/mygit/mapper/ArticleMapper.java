@@ -2,6 +2,7 @@ package cuit.mygit.mapper;
 
 import cuit.mygit.entity.Article;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
 
@@ -36,6 +37,68 @@ public interface ArticleMapper {
      * @return 查到的文章；查不到返回 null
      */
     Article selectById(Integer articleId);
+
+    /**
+     * 查某个作者发表的全部文章（个人主页用）。
+     *
+     * @param userId 作者ID
+     * @return 文章列表，该作者没写过文章时返回空集合
+     */
+    List<Article> selectByUserId(Integer userId);
+
+    /**
+     * 查某个分类下的全部文章。
+     *
+     * @param categoryId 分类ID
+     * @return 文章列表，分类下没有文章时返回空集合
+     */
+    List<Article> selectByCategoryId(Integer categoryId);
+
+    /**
+     * 查贴了某个标签的全部文章。
+     * <p>
+     * 这是 {@code ArticleTagMapper.selectTagsByArticleId} 的反方向：
+     * 那个是"文章 → 标签"，这个是"标签 → 文章"。两者合起来，
+     * 多对多关系才算两个方向都能查。
+     * <p>
+     * SQL 里要 JOIN 中间表 article_tag，所以放在这里而不是 ArticleTagMapper ——
+     * 查出来的每一条都是完整的文章，用 ArticleTagMapper 的话还得再查一次文章表。
+     *
+     * @param tagId 标签ID
+     * @return 文章列表，这个标签还没被贴过时返回空集合
+     */
+    List<Article> selectByTagId(Integer tagId);
+
+    /**
+     * 按标题关键字模糊搜索。
+     * <p>
+     * 匹配规则是"标题里包含这段文字"，不区分位置，也不区分大小写
+     * （MySQL 默认的排序规则就是大小写不敏感的）。
+     *
+     * @param keyword 关键字，已由 Service 层去过首尾空格
+     * @return 匹配到的文章列表，一条都没有时返回空集合
+     */
+    List<Article> selectByTitle(String keyword);
+
+    /**
+     * 分页查询文章。
+     * <p>
+     * offset 是"跳过前面多少条"，不是页码 —— 第 1 页传 0，第 2 页传 size，
+     * 第 n 页传 (n-1) × size。这个换算故意放在 Service 层做，
+     * DAO 层只认 offset，保持"传什么查什么"的单纯语义。
+     *
+     * @param offset 跳过多少条
+     * @param size   取多少条
+     * @return 这一页的文章列表
+     */
+    List<Article> selectPage(@Param("offset") int offset, @Param("size") int size);
+
+    /**
+     * 统计文章总数 —— 分页时算总页数要用。
+     *
+     * @return 文章总篇数
+     */
+    long countAll();
 
     /**
      * 新增文章。

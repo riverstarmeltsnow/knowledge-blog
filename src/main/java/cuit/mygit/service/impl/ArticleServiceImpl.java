@@ -1,5 +1,6 @@
 package cuit.mygit.service.impl;
 
+import cuit.mygit.common.PageResult;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.ArticleTag;
 import cuit.mygit.entity.Tag;
@@ -29,6 +30,15 @@ import java.util.List;
  */
 @Service
 public class ArticleServiceImpl implements ArticleService {
+
+    /**
+     * 分页时每页最多允许取多少条。
+     * <p>
+     * 加上限是为了防住 {@code ?size=100000} 这种请求 —— 前端要是真传了这个数，
+     * 一次就把整张表读进内存，数据库和浏览器都受不了。
+     * 传超了按上限处理，不报错。
+     */
+    private static final int MAX_PAGE_SIZE = 50;
 
     /**
      * 注入 Mapper。
@@ -214,6 +224,72 @@ public class ArticleServiceImpl implements ArticleService {
         }
 
         articleTagMapper.delete(relation);
+    }
+
+    // ==================== 筛选查询与分页 ====================
+
+    @Override
+    public List<Article> listByUserId(Integer userId) {
+        if (userId == null) {
+            throw new BusinessException("缺少作者ID");
+        }
+        // 这里**不检查这个用户存不存在**。
+        // 查询接口的语义是"把符合条件的都给我"，条件匹配不上就是空列表；
+        // 查一个不存在的用户返回"用户不存在"，反而让前端的空状态页面
+        // 得处理两种失败情况，得不偿失。真正需要存在性的是"写入"类操作。
+        return articleMapper.selectByUserId(userId);
+    }
+
+    @Override
+    public List<Article> listByCategoryId(Integer categoryId) {
+        if (categoryId == null) {
+            throw new BusinessException("缺少分类ID");
+        }
+        return articleMapper.selectByCategoryId(categoryId);
+    }
+
+    @Override
+    public List<Article> listByTagId(Integer tagId) {
+        if (tagId == null) {
+            throw new BusinessException("缺少标签ID");
+        }
+        return articleMapper.selectByTagId(tagId);
+    }
+
+    @Override
+    public List<Article> searchByTitle(String keyword) {
+        if (isBlank(keyword)) {
+            throw new BusinessException("搜索关键字不能为空");
+        }
+
+        // 去掉前后空格再查。用户从别处复制标题过来时经常带个尾随空格，
+        // 不处理的话搜" MySQL"会拼成 LIKE '% MySQL%'，
+        // 凡是"MySQL"不在标题开头的文章全都搜不到，用起来莫名其妙。
+        return articleMapper.selectByTitle(keyword.trim());
+    }
+
+    @Override
+    public PageResult<Article> page(int page, int size) {
+        // 页码和每页条数都是前端传上来的，不能直接拿去用。
+        // 策略是"纠正"而不是"报错"：
+        // 翻到第 0 页、或者传个 size=100000 想看全部，按边界值处理更自然。
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+
+        // 总条数要先查 —— PageResult 靠它才能算出总页数
+        long total = articleMapper.countAll();
+
+        // 算偏移量时先转成 long：页码传到几十万时 (safePage-1)*safeSize
+        // 在 int 里会溢出成负数，拼进 LIMIT 就是一条语法错误的 SQL
+        long offset = (long) (safePage - 1) * safeSize;
+        if (offset > Integer.MAX_VALUE) {
+            // 页码大得这么离谱，说明对方不是真想翻页，
+            // 直接给个空页，连数据库都不用查
+            return new PageResult<>(List.of(), total, safePage, safeSize);
+        }
+
+        List<Article> list = articleMapper.selectPage((int) offset, safeSize);
+        return new PageResult<>(list, total, safePage, safeSize);
     }
 
     /**
