@@ -29,8 +29,21 @@ import java.util.stream.Collectors;
  * <b>各处理方法的取舍原则</b>：能说清"是你请求发得不对"的，就把原因
  * 原样告诉调用方；说不出所以然的（空指针、SQL 写错），只回一句笼统的话，
  * 细节写进日志。后者是怕把表名、字段名这些内部结构泄露出去。
+ * <p>
+ * <b>为什么要写 {@code basePackages}</b>：这个类返回的全是 JSON。
+ * 它原本管着所有包，后来项目里多了一套用 Thymeleaf 渲染页面的控制器
+ * （在 {@code cuit.mygit.web} 包下）。那套控制器一旦出错，本该显示一个
+ * 错误页面，可如果异常被这里接走，用户看到的会是一屏 JSON —— 更糟的是
+ * 连异常信息都被"处理"掉了，页面只会白屏，排查时完全摸不着头脑。
+ * <p>
+ * 所以这里把范围**限定死**：只管 {@code cuit.mygit.controller} 这个包
+ * （连它的子包一起）。放在别处的控制器抛异常，走 Spring Boot 默认的
+ * 错误处理，该出页面出页面。
+ * <p>
+ * 注意 basePackages 写的是"包的路径"，不是类名，别写成
+ * {@code "cuit.mygit.controller.ArticleController"} 这种。
  */
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "cuit.mygit.controller")
 public class GlobalExceptionHandler {
 
     /**

@@ -63,6 +63,17 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Thymeleaf：服务端模板引擎。
+             和 static/ 里那些页面是两条完全不同的路子：
+             static/ 下的页面是"死的"，浏览器拿到后自己去调接口、再用 JS 拼出内容；
+             有了它，Controller 可以直接把数据塞进模板，在服务器上拼好整页 HTML 再发出去。
+             加了它以后，放在 resources/templates/ 下的 .html 会被自动接管，
+             访问路径由 Controller 决定，不再对应文件位置。 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>

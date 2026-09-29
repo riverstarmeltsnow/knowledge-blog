@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<!--
+  公共布局片段（Thymeleaf 叫它 fragment）。
+
+  这个文件不会被单独访问，它只负责存放几个页面共用的零件：
+  页头 <head>、顶部导航、操作提示条。
+  别的页面用 th:replace="~{admin/layout :: 片段名}" 把零件拼进去。
+
+  好处是导航栏只写一遍 —— 以后加一个菜单项，六个页面一起变，
+  不用挨个去改（改漏一个就会出现"这个页面点不动"的怪现象）。
+-->
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+
+<!--
+  页头片段。参数 pageTitle 由调用方传进来，用来拼 <title>。
+  thymeleaf 的片段是可以带参数的，写法就是在括号里写参数名。
+-->
+<head th:fragment="head(pageTitle)">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${pageTitle} + ' · 知识博客管理后台'">知识博客管理后台</title>
+
+    <!-- style.css 是前台页面就在用的那份，配色变量、按钮、卡片都在里面，
+         这里直接拿来复用，后台的观感和前台保持一致 -->
+    <link rel="stylesheet" th:href="@{/css/style.css}">
+    <!-- admin.css 只补后台特有的东西：表格、分页条、行内编辑表单 -->
+    <link rel="stylesheet" th:href="@{/css/admin.css}">
+</head>
+
+<body>
+
+<!--
+  顶部导航。参数 active 是当前页面的代号，
+  用来给对应的那个菜单项加高亮样式。
+-->
+<nav class="adm-nav" th:fragment="nav(active)">
+    <div class="adm-nav-inner">
+
+        <a class="adm-brand" th:href="@{/index.html}">
+            知识博客<span class="adm-brand-sub">管理后台</span>
+        </a>
+
+        <div class="adm-links">
+            <a class="adm-link" th:classappend="${active == 'articles' ? 'active' : ''}"
+               th:href="@{/admin/articles}">文章</a>
+            <a class="adm-link" th:classappend="${active == 'categories' ? 'active' : ''}"
+               th:href="@{/admin/categories}">分类</a>
+            <a class="adm-link" th:classappend="${active == 'tags' ? 'active' : ''}"
+               th:href="@{/admin/tags}">标签</a>
+            <a class="adm-link" th:classappend="${active == 'users' ? 'active' : ''}"
+               th:href="@{/admin/users}">用户</a>
+        </div>
+
+        <div class="adm-right">
+            <!--
+              身份切换。这里和静态版后台（manage.html）有个根本区别：
+              那边把"我是谁"存在浏览器的 localStorage 里，只有 JS 读得到；
+              这边的页面是服务器拼的，读不到浏览器存的东西，
+              所以改成存在服务端的会话（Session）里，由服务器自己记着。
+            -->
+            <form method="post" th:action="@{/admin/identity}" class="adm-identity">
+                <!--
+                  提交完跳回当前页。当前地址是运行时才知道的（可能在分类页切的身份），
+                  Thymeleaf 拼不出来，所以留个空字段，交给下面那句 JS 在提交前填上。
+                -->
+                <input type="hidden" name="back" id="identityBack" value="/admin/articles">
+
+                <label class="adm-identity-label" for="identitySelect">当前身份</label>
+                <select name="userId" id="identitySelect" class="adm-select adm-select-sm"
+                        onchange="document.getElementById('identityBack').value = location.pathname + location.search; this.form.submit();">
+                    <option value="">— 未选择 —</option>
+                    <option th:each="u : ${allUsers}"
+                            th:value="${u.userId}"
+                            th:text="${u.role != null and u.role == 1 ? u.username + '（管理员）' : u.username}"
+                            th:selected="${session.currentUser != null and session.currentUser.userId == u.userId}">
+                    </option>
+                </select>
+            </form>
+
+            <a class="adm-link adm-link-quiet" th:href="@{/index.html}">回前台</a>
+        </div>
+    </div>
+</nav>
+
+<!--
+  操作结果提示条。
+
+  这里显示的消息大多来自 RedirectAttributes 的 addFlashAttribute：
+  它把消息"暂存"到会话里，等下一次请求渲染页面时取出来用一次就删掉。
+  之所以要这么绕，是因为增删改都是提交完就重定向（防止刷新重复提交），
+  重定向之后是一个全新的请求，普通地往 Model 里放东西活不到那一刻。
+
+  两个 div 各自判断：没有消息时都不渲染，整条就自然消失了。
+-->
+<div class="adm-flash-row" th:fragment="flash">
+    <div class="adm-flash adm-flash-ok" th:if="${okMsg != null}" th:text="${okMsg}"></div>
+    <div class="adm-flash adm-flash-err" th:if="${errorMsg != null}" th:text="${errorMsg}"></div>
+</div>
+
+</body>
+</html>

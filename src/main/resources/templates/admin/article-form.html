@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<!--
+  文章表单页 —— 新增和修改共用这一个模板。
+
+  这是 Thymeleaf 表单最典型的样子，三件事必须配对：
+
+    1. form 上写 th:object="${article}"  —— 说清楚"这个表单绑的是哪个对象"
+    2. 输入框写 th:field="*{title}"      —— 星号表示"当前对象下的字段"
+    3. 错误提示写 th:errors="*{title}"   —— 同一套路径，显示校验失败的提示
+
+  th:field 会自动做三件事：填上 value、拼好 name 属性、以及回显用户上次输的内容。
+  比手写 name="title" th:value="${article.title}" 少写一半，还不容易写错字段名。
+-->
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+
+<head th:replace="~{admin/layout :: head(${article.articleId == null ? '写新文章' : '修改文章'})}"></head>
+
+<body>
+
+<nav th:replace="~{admin/layout :: nav('articles')}"></nav>
+
+<main class="adm-wrap">
+
+    <div th:replace="~{admin/layout :: flash}"></div>
+
+    <h1 class="adm-h1"
+        th:text="${article.articleId == null ? '写新文章' : '修改文章 #' + article.articleId}">写新文章</h1>
+
+    <!--
+      action 要区分"新增"和"修改"，这两件事后端处理的方法都不一样：
+        新增 → POST /admin/articles
+        修改 → POST /admin/articles/{id}
+
+      写法上用了一个三元表达式。为什么不写成两个一模一样的表单加 th:if？
+      因为那样字段和错误提示都得抄两遍，改一处漏一处的风险很大。
+
+      地址是用字符串拼的，没有用 @{...} 那种写法。@{} 擅长把参数拼成
+      ?a=1&b=2 的查询串，而这里拼的是路径本身，直接拼更清楚。
+    -->
+    <form method="post" th:object="${article}" class="adm-form"
+          th:action="${article.articleId == null ? '/admin/articles' : '/admin/articles/' + article.articleId}">
+
+        <!--
+          修改时才需要这个隐藏字段。
+
+          它存在的唯一理由是"让校验能过"：修改分组下 articleId 是必填规则，
+          表单里没有这个字段的话，提交上来 articleId 就是 null，校验直接判失败。
+          真正用哪个 ID 以地址栏为准（控制器里会覆盖掉这个值）。
+        -->
+        <input type="hidden" th:if="${article.articleId != null}" th:field="*{articleId}">
+
+        <!-- ==================== 标题 ==================== -->
+        <div class="adm-field">
+            <label class="adm-label" for="title">标题</label>
+            <input class="adm-input" id="title" type="text" th:field="*{title}"
+                   placeholder="给文章起个标题">
+
+            <!--
+              错误提示。th:errors 会把校验失败时那条中文提示（写在实体类的
+              注解 message 里）显示出来；没出错时整个 div 不渲染。
+            -->
+            <div class="adm-field-err" th:if="${#fields.hasErrors('title')}" th:errors="*{title}"></div>
+        </div>
+
+        <!-- ==================== 正文 ==================== -->
+        <div class="adm-field">
+            <label class="adm-label" for="content">正文</label>
+            <textarea class="adm-textarea" id="content" rows="14" th:field="*{content}"
+                      placeholder="写点什么……"></textarea>
+            <div class="adm-field-err" th:if="${#fields.hasErrors('content')}" th:errors="*{content}"></div>
+        </div>
+
+        <div class="adm-field-row">
+            <!-- ==================== 作者 ==================== -->
+            <div class="adm-field">
+                <label class="adm-label" for="userId">作者</label>
+                <select class="adm-select" id="userId" th:field="*{userId}">
+                    <option value="">— 请选择 —</option>
+                    <option th:each="u : ${allUsers}"
+                            th:value="${u.userId}"
+                            th:text="${u.role != null and u.role == 1 ? u.username + '（管理员）' : u.username}">
+                    </option>
+                </select>
+                <div class="adm-field-err" th:if="${#fields.hasErrors('userId')}" th:errors="*{userId}"></div>
+            </div>
+
+            <!-- ==================== 分类 ==================== -->
+            <div class="adm-field">
+                <label class="adm-label" for="categoryId">分类</label>
+                <select class="adm-select" id="categoryId" th:field="*{categoryId}">
+                    <!-- 分类可以不选，存进去就是 null，列表里显示"未分类" -->
+                    <option value="">— 未分类 —</option>
+                    <option th:each="c : ${allCategories}"
+                            th:value="${c.categoryId}"
+                            th:text="${c.name}">学习笔记</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ==================== 标签 ==================== -->
+        <div class="adm-field">
+            <label class="adm-label">标签（可多选）</label>
+
+            <!--
+              标签和文章是多对多关系，靠中间表 article_tag 记录。
+              表单这边用一组复选框表示：勾上就是"要贴"，取消勾选就是"要摘掉"。
+
+              注意这些复选框**没有**用 th:field —— th:field 只能绑单个值，
+              绑不了"一组中选中了哪几个"。所以这里手写 name 和 th:checked，
+              提交上来是一个 tagIds 数组，控制器里接成 List<Integer>。
+
+              没选身份时整个区域禁用：贴标签要判权限（只有作者本人或管理员能改），
+              没有身份就没有 operatorId，后端做不了这件事。
+            -->
+            <div class="adm-tag-picker" th:classappend="${session.currentUser == null ? 'adm-disabled' : ''}">
+                <label class="adm-check" th:each="t : ${allTags}">
+                    <input type="checkbox" name="tagIds" th:value="${t.tagId}"
+                           th:checked="${tagIds.contains(t.tagId)}"
+                           th:disabled="${session.currentUser == null}">
+                    <span th:text="${t.name}">Java</span>
+                </label>
+                <span class="adm-soft" th:if="${allTags.isEmpty()}">
+                    还没有标签，可以先去「标签」页建几个。
+                </span>
+            </div>
+
+            <p class="adm-hint" th:if="${session.currentUser == null}">
+                你还没有选择身份，标签改不了 —— 贴标签要判断"你是不是这篇文章的作者"，
+                没有身份就没法判断。先去右上角选一个。
+            </p>
+        </div>
+
+        <!-- ==================== 按钮 ==================== -->
+        <div class="adm-form-actions">
+            <button class="btn btn-primary" type="submit"
+                    th:text="${article.articleId == null ? '发表' : '保存修改'}">发表</button>
+            <a class="btn" th:href="@{/admin/articles}">取消</a>
+        </div>
+
+    </form>
+
+</main>
+
+</body>
+</html>

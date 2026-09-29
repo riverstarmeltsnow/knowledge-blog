@@ -1,0 +1,491 @@
+/*
+ * 管理后台（Thymeleaf 版）的补充样式。
+ *
+ * 为什么单独一个文件，不直接加到 style.css 里：
+ * style.css 是前台五个页面共用的，动它一下，前台也得跟着回归测试一遍。
+ * 后台真正需要的增量其实只有"表格、分页条、行内编辑表单"这几样，
+ * 单独放一个文件，两边互不干扰。
+ *
+ * 配色一个都没重定义 —— 下面的颜色全部用 style.css 里那几个 CSS 变量
+ * （--brand、--ink、--line 这些）。这样以后想换主题色，
+ * 只改 style.css 的 :root 一处，后台自动跟着变。
+ *
+ * 类名统一加 adm- 前缀（administrator 的缩写），
+ * 和前台那些 .btn、.card、.tag-chip 隔开，不会互相覆盖。
+ */
+
+/* ==================== 顶部导航 ==================== */
+
+.adm-nav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    position: sticky;   /* 往下滚的时候导航条吸在顶上，长表格里翻页不用滚回去 */
+    top: 0;
+    z-index: 20;
+}
+
+.adm-nav-inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 28px;
+}
+
+.adm-brand {
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--ink);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.adm-brand-sub {
+    font-family: var(--font-sans);
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--brand);
+    background: var(--brand-soft);
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-left: 8px;
+    vertical-align: 2px;
+}
+
+.adm-links {
+    display: flex;
+    gap: 4px;
+    flex: 1;   /* 占满中间，把右边的身份选择器挤到最右边 */
+}
+
+.adm-link {
+    display: inline-block;
+    padding: 7px 14px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
+    transition: background .15s, color .15s;
+}
+
+.adm-link:hover {
+    background: var(--bg);
+    color: var(--ink);
+}
+
+/* 当前所在的那个菜单项 */
+.adm-link.active {
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-weight: 600;
+}
+
+.adm-link-quiet {
+    font-size: 13px;
+    color: var(--ink-faint);
+}
+
+.adm-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.adm-identity {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.adm-identity-label {
+    font-size: 13px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+}
+
+/* ==================== 页面容器 ==================== */
+
+.adm-wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 26px 24px 60px;
+}
+
+.adm-h1 {
+    font-family: var(--font-serif);
+    font-size: 20px;
+    color: var(--ink);
+    margin: 26px 0 14px;
+    padding-bottom: 9px;
+    border-bottom: 1px solid var(--line);
+}
+
+.adm-h1:first-of-type {
+    margin-top: 6px;
+}
+
+/* ==================== 提示条 ==================== */
+
+/*
+ * 空的提示条不占位置。这类"有就显示、没有就消失"的块
+ * 最容易留下一条看不见的空白把版面撑开，索性在这里统一收掉。
+ */
+.adm-flash-row:empty {
+    display: none;
+}
+
+.adm-flash {
+    padding: 11px 15px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    margin-bottom: 12px;
+    border-left: 3px solid;
+}
+
+.adm-flash-ok {
+    background: #f0fdf4;
+    border-color: var(--ok);
+    color: #14532d;
+}
+
+.adm-flash-err {
+    background: #fef2f2;
+    border-color: var(--danger);
+    color: #7f1d1d;
+}
+
+/* ==================== 工具条 ==================== */
+
+.adm-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.adm-toolbar-info {
+    font-size: 14px;
+    color: var(--ink-soft);
+}
+
+.adm-toolbar-info b {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+/* ==================== 表格 ==================== */
+
+.adm-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}
+
+.adm-table th {
+    background: var(--bg);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.adm-table td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--ink);
+    vertical-align: middle;
+}
+
+/* 最后一行的下边框去掉 —— 表格自己有外框，再留一条线会显得像双线 */
+.adm-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.adm-table tbody tr:hover {
+    background: #fdfcfa;
+}
+
+.adm-soft {
+    color: var(--ink-soft);
+    font-size: 13px;
+}
+
+/*
+ * 这一格里的内容不许折行。
+ * 表头里写的 width 只是"建议值"，表格默认的自动布局会按内容重新分配列宽，
+ * 结果就是把日期挤成"2026-09-29"和"10:37:19"两行 —— 一行高一行矮，很难看。
+ * 声明成不折行之后，浏览器反过来会把这一列撑到够宽。
+ */
+.adm-nowrap {
+    white-space: nowrap;
+}
+
+.adm-title {
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.adm-title:hover {
+    color: var(--brand);
+    text-decoration: underline;
+}
+
+.adm-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.adm-empty {
+    text-align: center;
+    color: var(--ink-faint);
+    padding: 36px 14px !important;
+    font-size: 14px;
+}
+
+/* ==================== 分页条 ==================== */
+
+.adm-pager {
+    display: flex;
+    gap: 5px;
+    margin-top: 18px;
+    justify-content: center;
+}
+
+.adm-page {
+    min-width: 34px;
+    height: 34px;
+    padding: 0 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
+}
+
+.adm-page:hover {
+    border-color: var(--brand);
+    color: var(--brand);
+}
+
+.adm-page.active {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: #fff;
+    font-weight: 600;
+}
+
+/*
+ * 第一页的"上一页"、最后一页的"下一页"留着但点不动。
+ * 用 pointer-events 让它连鼠标都点不到 —— 比只是变浅更好，
+ * 因为用户看到变浅还是会去点，点了没反应更费解。
+ */
+.adm-page.disabled {
+    pointer-events: none;
+    opacity: .4;
+}
+
+/* ==================== 表单 ==================== */
+
+.adm-form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    box-shadow: var(--shadow);
+}
+
+.adm-field {
+    margin-bottom: 18px;
+}
+
+/* 两个字段并排一行（作者 + 分类） */
+.adm-field-row {
+    display: flex;
+    gap: 18px;
+}
+
+.adm-field-row .adm-field {
+    flex: 1;
+}
+
+.adm-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+}
+
+.adm-input,
+.adm-textarea,
+.adm-select {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+}
+
+.adm-input:focus,
+.adm-textarea:focus,
+.adm-select:focus {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.adm-textarea {
+    resize: vertical;
+    line-height: 1.7;
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+}
+
+/* 表格里那种小号输入框，尺寸收一档才塞得下 */
+.adm-input-sm {
+    width: auto;
+    padding: 6px 9px;
+    font-size: 13px;
+}
+
+/* 在一排输入框里"把剩下的宽度全占了"的那个 */
+.adm-grow {
+    flex: 1;
+    min-width: 120px;
+}
+
+/* 校验失败的红色提示 */
+.adm-field-err {
+    color: var(--danger);
+    font-size: 13px;
+    margin-top: 6px;
+}
+
+/* ==================== 行内编辑表单 ==================== */
+
+/*
+ * 顶部的新增表单和表格每行的编辑表单共用的排版：
+ * 一行横着排，放不下就换行。
+ */
+.adm-inline-form,
+.adm-row-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.adm-inline-form {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: var(--shadow);
+}
+
+.adm-inline-form .adm-input {
+    width: 220px;
+}
+
+/*
+ * 错误提示在这两个表单里要独占一行。
+ * flex-basis:100% 的意思是"这一项至少占满一整行"，
+ * 于是它前面的输入框们排完第一行，提示自己落到第二行去。
+ */
+.adm-inline-form .adm-field-err,
+.adm-row-form .adm-field-err {
+    flex-basis: 100%;
+    margin-top: 2px;
+}
+
+/* 删除按钮所在的表单，和旁边的编辑表单排在一行 */
+.adm-inline {
+    display: inline;
+}
+
+/* ==================== 标签选择器 ==================== */
+
+.adm-tag-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+}
+
+/* 没选身份时整块变灰，配合 input 上的 disabled 让用户一眼看出改不了 */
+.adm-disabled {
+    opacity: .5;
+}
+
+.adm-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 14px;
+    color: var(--ink);
+    cursor: pointer;
+    user-select: none;
+}
+
+.adm-check input {
+    accent-color: var(--brand);   /* 勾选框也换成主题色 */
+    cursor: pointer;
+}
+
+/* ==================== 零碎 ==================== */
+
+.adm-role {
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    background: var(--bg);
+    color: var(--ink-soft);
+    border: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.adm-role-admin {
+    background: var(--brand-soft);
+    color: var(--brand);
+    border-color: transparent;
+}
+
+.adm-hint {
+    font-size: 13px;
+    color: var(--ink-faint);
+    line-height: 1.7;
+    margin-top: 12px;
+}
+
+.adm-form-actions {
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid var(--line);
+    margin-top: 22px;
+    padding-top: 18px;
+}

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!--
+  分类管理页：上面新增，下面每行可以直接改了保存、或者删掉。
+
+  为什么不做成"点编辑跳到一个单独的表单页"？因为分类只有名称和描述两个短字段，
+  跳到新页面再跳回来反而绕。表格里每行直接摆输入框，改完点保存就行 ——
+  代价是每行都要套一个独立的 <form>，因为一个表单只能提交一次动作，
+  而每行既要能"保存"又要能"删除"，是两件不同的事。
+-->
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+
+<head th:replace="~{admin/layout :: head('分类管理')}"></head>
+
+<body>
+
+<nav th:replace="~{admin/layout :: nav('categories')}"></nav>
+
+<main class="adm-wrap">
+
+    <div th:replace="~{admin/layout :: flash}"></div>
+
+    <!-- ==================== 新增 ==================== -->
+    <h1 class="adm-h1">新增分类</h1>
+
+    <!--
+      这个表单绑的是模型里那个空的 Category 对象（控制器放的 new Category()）。
+      校验失败时，控制器会直接把本页重新渲染一遍 ——
+      所以这里填的内容、下面那个红色提示，都还在。
+
+      注意两个错误提示 div 是写在 <form> **里面**的：
+      th:errors 要靠 form 上的 th:object 才知道"字段是哪个对象的字段"，
+      写到表单外面就找不着了，提示永远出不来。
+    -->
+    <form method="post" th:action="@{/admin/categories}" th:object="${category}" class="adm-inline-form">
+        <input class="adm-input" type="text" th:field="*{name}" placeholder="分类名称，如「学习笔记」">
+        <input class="adm-input" type="text" th:field="*{description}" placeholder="一句话描述（可不填）">
+        <button class="btn btn-primary btn-sm" type="submit">新增</button>
+
+        <div class="adm-field-err" th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></div>
+        <div class="adm-field-err" th:if="${#fields.hasErrors('description')}" th:errors="*{description}"></div>
+    </form>
+
+    <!-- ==================== 列表 ==================== -->
+    <h1 class="adm-h1">全部分类</h1>
+
+    <table class="adm-table">
+        <thead>
+        <tr>
+            <th style="width: 58px">ID</th>
+            <th style="width: 200px">名称</th>
+            <th>描述</th>
+            <th style="width: 84px">操作</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="c : ${categories}">
+            <td class="adm-soft" th:text="${c.categoryId}">1</td>
+
+            <td colspan="2">
+                <!--
+                  行内编辑表单。输入框用的是 name="name" 这种普通写法，
+                  没有用 th:field —— 因为 th:field 需要表单上有 th:object，
+                  而这里是"每一行绑一个对象"，几行共用不了一个 th:object。
+                  控制器那边用 @ModelAttribute Category 接，它会按字段名自动对上。
+                -->
+                <form method="post" class="adm-row-form"
+                      th:action="@{/admin/categories/{id}(id=${c.categoryId})}">
+                    <input class="adm-input adm-input-sm" type="text" name="name" th:value="${c.name}">
+                    <input class="adm-input adm-input-sm adm-grow" type="text" name="description"
+                           th:value="${c.description}" placeholder="（无描述）">
+                    <button class="btn btn-sm" type="submit">保存</button>
+                </form>
+            </td>
+
+            <td>
+                <!--
+                  删除单独一个表单。分类下有文章时会被 Service 层拦下，
+                  提示会以红条的形式出现在页面顶部。
+                -->
+                <form method="post"
+                      th:action="@{/admin/categories/{id}/delete(id=${c.categoryId})}"
+                      onsubmit="return confirm('确定删除这个分类吗？');">
+                    <button class="btn btn-danger btn-sm" type="submit">删除</button>
+                </form>
+            </td>
+        </tr>
+
+        <tr th:if="${categories.isEmpty()}">
+            <td colspan="4" class="adm-empty">还没有分类，在上面新增一个。</td>
+        </tr>
+        </tbody>
+    </table>
+
+</main>
+
+</body>
+</html>

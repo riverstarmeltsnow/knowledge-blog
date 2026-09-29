@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<!--
+  用户管理页。
+
+  这个页面最能说明"校验分组"是干什么用的：
+  新增用户时密码是必填的（注册当然要设密码），
+  修改资料时密码留空却表示"不改密码" —— 同一张表单、同一个字段，
+  两件事的规则正好相反。靠 ValidGroup.Create / ValidGroup.Update
+  两个分组区分开，不用为此写两个 User 类。
+
+  表格的写法上有个约束值得记一下：一行里的输入框和"保存"按钮
+  必须待在**同一个 <td>** 里。因为表单不能跨单元格 ——
+  写成 <td>输入框</td><td>按钮</td> 再想用一个 form 把两者包住，
+  浏览器会自作主张地在 </td> 处把 form 关掉，提交时就只剩一半字段了。
+  所以这里把中间几列合并成一个 td（colspan），表单完整地待在里面。
+-->
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+
+<head th:replace="~{admin/layout :: head('用户管理')}"></head>
+
+<body>
+
+<nav th:replace="~{admin/layout :: nav('users')}"></nav>
+
+<main class="adm-wrap">
+
+    <div th:replace="~{admin/layout :: flash}"></div>
+
+    <!-- ==================== 新增 ==================== -->
+    <h1 class="adm-h1">新增用户</h1>
+
+    <form method="post" th:action="@{/admin/users}" th:object="${user}" class="adm-inline-form">
+        <input class="adm-input" type="text" th:field="*{username}" placeholder="用户名">
+        <input class="adm-input" type="email" th:field="*{email}" placeholder="邮箱（可不填）">
+        <input class="adm-input" type="password" th:field="*{password}" placeholder="密码">
+        <button class="btn btn-primary btn-sm" type="submit">新增</button>
+
+        <div class="adm-field-err" th:if="${#fields.hasErrors('username')}" th:errors="*{username}"></div>
+        <div class="adm-field-err" th:if="${#fields.hasErrors('email')}" th:errors="*{email}"></div>
+        <div class="adm-field-err" th:if="${#fields.hasErrors('password')}" th:errors="*{password}"></div>
+    </form>
+
+    <!-- ==================== 列表 ==================== -->
+    <h1 class="adm-h1">全部用户</h1>
+
+    <table class="adm-table">
+        <thead>
+        <tr>
+            <th style="width: 58px">ID</th>
+            <th>用户信息</th>
+            <th style="width: 92px">操作</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="u : ${users}">
+            <td class="adm-soft" th:text="${u.userId}">1</td>
+
+            <!-- 中间几列合成一格，这一格里装的是一个完整的表单 -->
+            <td colspan="1">
+                <form method="post" class="adm-row-form"
+                      th:action="@{/admin/users/{id}(id=${u.userId})}">
+
+                    <input class="adm-input adm-input-sm" type="text" name="username"
+                           th:value="${u.username}">
+
+                    <input class="adm-input adm-input-sm" type="email" name="email"
+                           th:value="${u.email}" placeholder="（无邮箱）">
+
+                    <!--
+                      留空就是"不改密码"。这不是这里特判出来的，而是实体类上
+                      密码那条 @NotBlank 只在新增分组里生效 —— 修改分组下
+                      根本没检查它，空着也能过。控制器把它原样交给 Service 处理。
+                    -->
+                    <input class="adm-input adm-input-sm" type="password" name="password"
+                           placeholder="留空表示不改密码">
+
+                    <!--
+                      角色用一个隐藏字段原样带回去。
+                      不这么做的话，修改表单里没有 role 这一项，提交上来就是 null，
+                      可能把管理员悄悄降成普通用户 —— 而页面上什么都看不出来。
+                    -->
+                    <input type="hidden" name="role" th:value="${u.role}">
+                    <span class="adm-role"
+                          th:classappend="${u.role != null and u.role == 1 ? 'adm-role-admin' : ''}"
+                          th:text="${u.role != null and u.role == 1 ? '管理员' : '普通用户'}">普通用户</span>
+
+                    <button class="btn btn-sm" type="submit">保存</button>
+                </form>
+            </td>
+
+            <td>
+                <form method="post"
+                      th:action="@{/admin/users/{id}/delete(id=${u.userId})}"
+                      onsubmit="return confirm('确定删除这个用户吗？他发过的评论也会一并删掉。');">
+                    <button class="btn btn-danger btn-sm" type="submit">删除</button>
+                </form>
+            </td>
+        </tr>
+
+        <tr th:if="${users.isEmpty()}">
+            <td colspan="3" class="adm-empty">还没有用户。</td>
+        </tr>
+        </tbody>
+    </table>
+
+    <p class="adm-hint">
+        两条和数据库有关的规则，页面上看不出来但确实在起作用：
+        用户写过文章就删不掉（article 表有指向 user 的外键），
+        删用户会连带删掉他发过的评论（评论跟着人走）。
+        这些判断都在 Service 层做，报错信息也是人话，不用去读 SQL 异常。
+    </p>
+
+    <p class="adm-hint">
+        密码是以明文存进数据库的 —— 这门课为了把注意力放在分层和 SQL 上，没做加密。
+        真实项目里必须存加密后的值，而且表单要走 HTTPS，否则密码在网络上是裸奔的。
+    </p>
+
+</main>
+
+</body>
+</html>

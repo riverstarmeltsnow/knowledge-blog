@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--
+  标签管理页。结构和分类页一样，区别是标签只有名字一个字段。
+
+  另外有个看不见的区别在数据库那边：标签和文章是多对多关系，
+  关联记在 article_tag 中间表里。所以删标签时 Service 层要多做一步 ——
+  先把中间表里指向它的记录清掉，再删标签本身，两步在同一个事务里。
+  这件事页面上完全看不出来，但少了它就会撞上外键约束报错。
+-->
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+
+<head th:replace="~{admin/layout :: head('标签管理')}"></head>
+
+<body>
+
+<nav th:replace="~{admin/layout :: nav('tags')}"></nav>
+
+<main class="adm-wrap">
+
+    <div th:replace="~{admin/layout :: flash}"></div>
+
+    <!-- ==================== 新增 ==================== -->
+    <h1 class="adm-h1">新增标签</h1>
+
+    <form method="post" th:action="@{/admin/tags}" th:object="${tag}" class="adm-inline-form">
+        <input class="adm-input" type="text" th:field="*{name}" placeholder="标签名，如「Java」">
+        <button class="btn btn-primary btn-sm" type="submit">新增</button>
+
+        <div class="adm-field-err" th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></div>
+    </form>
+
+    <!-- ==================== 列表 ==================== -->
+    <h1 class="adm-h1">全部标签</h1>
+
+    <table class="adm-table">
+        <thead>
+        <tr>
+            <th style="width: 58px">ID</th>
+            <th style="width: 240px">名称</th>
+            <th>操作</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="t : ${tags}">
+            <td class="adm-soft" th:text="${t.tagId}">1</td>
+
+            <td>
+                <form method="post" class="adm-row-form"
+                      th:action="@{/admin/tags/{id}(id=${t.tagId})}">
+                    <input class="adm-input adm-input-sm adm-grow" type="text" name="name" th:value="${t.name}">
+                    <button class="btn btn-sm" type="submit">保存</button>
+                </form>
+            </td>
+
+            <td>
+                <form method="post"
+                      th:action="@{/admin/tags/{id}/delete(id=${t.tagId})}"
+                      onsubmit="return confirm('确定删除这个标签吗？它和文章之间的关联也会一并清掉（文章本身不会删）。');">
+                    <button class="btn btn-danger btn-sm" type="submit">删除</button>
+                </form>
+            </td>
+        </tr>
+
+        <tr th:if="${tags.isEmpty()}">
+            <td colspan="3" class="adm-empty">还没有标签，在上面新增一个。</td>
+        </tr>
+        </tbody>
+    </table>
+
+</main>
+
+</body>
+</html>
