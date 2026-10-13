@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 注册</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <div class="who" id="who"></div>
+        </div>
+    </div>
+</header>
+
+<main class="layout layout-narrow">
+    <div class="auth-card">
+        <h1 class="auth-title">注册</h1>
+        <p class="auth-sub">注册一个账号，就能发表评论和文章了。</p>
+
+        <div class="auth-err" id="errBox"></div>
+
+        <form id="registerForm">
+            <div class="field">
+                <label for="username">用户名</label>
+                <input type="text" id="username" maxlength="50"
+                       autocomplete="username" placeholder="最多 50 个字符">
+                <!-- 上限写 50 不是随手定的，和 schema.sql 里
+                     username VARCHAR(50) 对齐；两边对不上，
+                     用户能在前端填下一个数据库根本存不下的值 -->
+            </div>
+
+            <div class="field">
+                <label for="password">密码</label>
+                <input type="password" id="password" maxlength="100"
+                       autocomplete="new-password" placeholder="最多 100 个字符">
+            </div>
+
+            <div class="field">
+                <label for="password2">确认密码</label>
+                <input type="password" id="password2" maxlength="100"
+                       autocomplete="new-password" placeholder="再输一遍">
+                <!-- 确认密码只在前端比对，不发给后端 —— 后端收到的
+                     永远只有一个密码字段，没有"两个密码要不要一致"这回事 -->
+            </div>
+
+            <div class="field">
+                <label for="email">邮箱<span class="field-hint">（可不填）</span></label>
+                <input type="email" id="email" maxlength="100"
+                       autocomplete="email" placeholder="填了的话格式要像邮箱">
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-primary" type="submit" id="submitBtn">注册</button>
+            </div>
+        </form>
+
+        <div class="auth-alt">
+            已经有账号了？<a href="login.html">去登录</a>
+        </div>
+    </div>
+</main>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 注册页。
+     *
+     * 走的是 POST /user/register，和后台管理页"新增用户"用的是同一个接口 ——
+     * "用户名不能重复"这条规则只在 Service 层写了一遍，两边不用各维护一份。
+     *
+     * 注册成功后**顺手帮用户登上**，省得再回登录页敲一遍刚设的密码。
+     */
+
+    function showError(message) {
+        const box = $('#errBox');
+        box.textContent = message;
+        box.classList.add('show');
+    }
+
+    function hideError() {
+        $('#errBox').classList.remove('show');
+    }
+
+    /**
+     * 前端能自己判断的几条，先拦下来 —— 省一次网络往返，
+     * 也省得让用户等着看完后端的报错才发现两次密码打的不一样。
+     * 判断不了的（用户名重名、邮箱格式）留给后端。
+     */
+    function validate(username, password, confirm) {
+        if (!username) {
+            return '请输入用户名';
+        }
+        if (!password) {
+            return '请输入密码';
+        }
+        if (password !== confirm) {
+            return '两次输入的密码不一样';
+        }
+        return '';
+    }
+
+    async function doRegister(event) {
+        event.preventDefault();
+
+        const username = $('#username').value.trim();
+        const password = $('#password').value;
+        const confirm = $('#password2').value;
+        const email = $('#email').value.trim();
+
+        hideError();
+
+        const problem = validate(username, password, confirm);
+        if (problem) {
+            showError(problem);
+            return;
+        }
+
+        const btn = $('#submitBtn');
+        btn.disabled = true;
+        btn.textContent = '提交中…';
+
+        try {
+            // 请求体里**故意不放 role**。
+            // UserServiceImpl.register 只在 role 为 null 时才把新用户
+            // 降级成普通用户，传了 role 它照单全收 —— 前端把 role 填上去，
+            // 就等于把"注册成管理员"这个选项直接摆在页面上。
+            // 邮箱为空时也整个字段不传：传空串会走到 @Email 的校验上。
+            const payload = { username, password };
+            if (email) {
+                payload.email = email;
+            }
+            await post('/user/register', payload);
+
+            // 注册接口返回的用户对象里已经抹掉了密码，但为了和别处拿到
+            // 的对象形状完全一致（登录返回的也不含密码），这里重新登录一次。
+            // 顺带也验证了一遍"刚设的密码确实能登进来"。
+            const user = await postForm('/user/login', { username, password });
+            setMe(user);
+
+            toast('注册成功，欢迎「' + user.username + '」', 'ok');
+
+            // 等提示条露个脸再跳
+            setTimeout(() => { location.href = 'index.html'; }, 700);
+        } catch (e) {
+            showError(e.message);
+            btn.disabled = false;
+            btn.textContent = '注册';
+        }
+    }
+
+    $('#registerForm').addEventListener('submit', doRegister);
+    renderLoginState('#who');
+</script>
+
+</body>
+</html>

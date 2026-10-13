@@ -26,7 +26,6 @@
             </form>
 
             <div class="who" id="who"></div>
-            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
         </div>
     </div>
 </header>
@@ -113,8 +112,7 @@
             return;
         }
 
-        initIdentityPicker(state.users, '#identitySelect');
-        renderCurrentIdentity('#who');
+        renderLoginState('#who');
         initSearchBox();
 
         renderSidebar();

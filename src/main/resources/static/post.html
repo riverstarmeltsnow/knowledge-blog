@@ -26,7 +26,6 @@
             </form>
 
             <div class="who" id="who"></div>
-            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
         </div>
     </div>
 </header>
@@ -44,7 +43,7 @@
         <!-- 发表新评论 -->
         <div class="comment-editor">
             <textarea id="commentInput" rows="3"
-                      placeholder="说点什么…（发表前请先在右上角选择身份）"></textarea>
+                      placeholder="说点什么…（发表前请先登录）"></textarea>
             <div class="editor-foot">
                 <span class="editor-hint" id="editorHint"></span>
                 <button class="btn btn-primary" id="submitComment">发表评论</button>
@@ -125,8 +124,7 @@
             return;
         }
 
-        initIdentityPicker(state.users, '#identitySelect');
-        renderCurrentIdentity('#who');
+        renderLoginState('#who');
         initSearchBox();
         bindEvents();
 
@@ -381,7 +379,7 @@
     /** 点"回复"：把回复表单挪到这条评论下面 */
     function startReply(commentId) {
         if (!getMe()) {
-            toast('请先在右上角选择身份再回复');
+            toast('请先登录再回复');
             return;
         }
 
@@ -413,7 +411,7 @@
     async function submitComment(content, parentId) {
         const me = getMe();
         if (!me) {
-            toast('请先在右上角选择身份再发表');
+            toast('请先登录再发表');
             return false;
         }
         if (!content.trim()) {
@@ -473,7 +471,7 @@
             }
         });
 
-        // 提示当前能不能评论 —— 没选身份的话按钮点了也白点，
+        // 提示当前能不能评论 —— 没登录的话按钮点了也白点，
         // 提前说清楚比点完再弹错误友好
         updateEditorHint();
     }
@@ -482,7 +480,7 @@
         const me = getMe();
         $('#editorHint').textContent = me
             ? '当前身份：' + me.username
-            : '还没选身份，发表前请先在右上角选一个';
+            : '还没登录，发表前请先登录';
     }
 
     // ==================== 小工具 ====================

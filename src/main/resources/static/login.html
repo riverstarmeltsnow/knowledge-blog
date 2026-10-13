@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 登录</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <!-- 这一页不放搜索框：正填着表呢，少一个能点走的地方 -->
+        <div class="nav-right">
+            <div class="who" id="who"></div>
+        </div>
+    </div>
+</header>
+
+<main class="layout layout-narrow">
+    <div class="auth-card">
+        <h1 class="auth-title">登录</h1>
+        <p class="auth-sub">登录之后才能发表评论、修改自己的文章。</p>
+
+        <!-- 后端报的错（密码不对、用户名不存在）显示在这，不留到 toast 里
+             一闪而过 —— 用户往往需要照着提示再看一遍自己填了什么 -->
+        <div class="auth-err" id="errBox"></div>
+
+        <form id="loginForm">
+            <div class="field">
+                <label for="username">用户名</label>
+                <input type="text" id="username" maxlength="50"
+                       autocomplete="username" placeholder="比如 hexin">
+            </div>
+
+            <div class="field">
+                <label for="password">密码</label>
+                <input type="password" id="password" maxlength="100"
+                       autocomplete="current-password" placeholder="请输入密码">
+            </div>
+
+            <div class="form-actions">
+                <button class="btn btn-primary" type="submit" id="submitBtn">登录</button>
+            </div>
+        </form>
+
+        <div class="auth-alt">
+            还没有账号？<a href="register.html">去注册</a>
+        </div>
+    </div>
+</main>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 登录页。
+     *
+     * 它做的事只有三件：
+     *   1. 把用户名密码发给 POST /user/login
+     *   2. 把返回的用户存进 localStorage（setMe）
+     *   3. 跳回首页
+     *
+     * 第 2 步之后，每个页面导航栏里的 renderLoginState 都能读到这份状态 ——
+     * 这就是"登录一次，全站认得你"的全部机制。后端始终是无状态的，
+     * 没有会话，所以严格说这只是一份**浏览器自己记着的**身份，
+     * 真正的权限判断仍然在后端（比如删文章会校验 operatorId 是不是作者本人）。
+     */
+
+    /** 显示一条错误 */
+    function showError(message) {
+        const box = $('#errBox');
+        box.textContent = message;
+        // 显隐交给 CSS 的 .show 类，这里不直接改 style.display ——
+        // 样式的事统一留在样式表里，以后换配色不用回来改 JS
+        box.classList.add('show');
+    }
+
+    /** 把错误收起来（每次重新提交前先收一次，免得看到上一次的旧提示） */
+    function hideError() {
+        $('#errBox').classList.remove('show');
+    }
+
+    /** 表单有没有填齐。这里只做"空不空"的检查，格式对不对交给后端 */
+    function validate(username, password) {
+        if (!username) {
+            return '请输入用户名';
+        }
+        if (!password) {
+            return '请输入密码';
+        }
+        return '';
+    }
+
+    async function doLogin(event) {
+        // form 的默认提交会让浏览器整页刷新，那样错误提示和被拦下的请求
+        // 全都白做了。所以先拦住它，后面自己决定怎么走
+        event.preventDefault();
+
+        const username = $('#username').value.trim();
+        const password = $('#password').value;
+
+        hideError();
+
+        const problem = validate(username, password);
+        if (problem) {
+            showError(problem);
+            return;
+        }
+
+        const btn = $('#submitBtn');
+        btn.disabled = true;
+        btn.textContent = '登录中…';
+
+        try {
+            const user = await postForm('/user/login', { username, password });
+
+            // 返回的用户对象里没有密码 —— Service 层返回前抹掉了，
+            // 所以可以整个存下来，不用挑字段
+            setMe(user);
+            toast('欢迎回来，' + user.username, 'ok');
+
+            // 等提示条露个脸再跳。立刻跳的话页面一换，提示就看不见了
+            setTimeout(() => { location.href = 'index.html'; }, 600);
+        } catch (e) {
+            // 用户名不存在和密码错误，后端统一报"用户名或密码错误" ——
+            // 分开发提示的话，别人就能拿这个接口一个个试出哪些用户名已注册
+            showError(e.message);
+            btn.disabled = false;
+            btn.textContent = '登录';
+        }
+    }
+
+    $('#loginForm').addEventListener('submit', doLogin);
+    renderLoginState('#who');
+</script>
+
+</body>
+</html>

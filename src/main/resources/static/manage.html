@@ -26,7 +26,6 @@
             </form>
 
             <div class="who" id="who"></div>
-            <select class="identity-select" id="identitySelect" title="选择当前身份"></select>
         </div>
     </div>
 </header>
@@ -37,9 +36,10 @@
         <p class="page-sub" id="pageSub"></p>
     </div>
 
-    <!-- 没选身份时顶上挂一条提醒。后端对分类/标签/用户这些接口
-         没有做身份校验（实验里还没做登录会话），所以这只是提醒，
-         不是拦路虎；但删除文章是**真的**需要身份，后端会拒绝 -->
+    <!-- 没登录时顶上挂一条提醒。后端对分类/标签/用户这些接口
+         没有做"必须登录"的校验 —— 登录状态只存在浏览器这头，
+         接口本身是无状态的，所以这只是提醒，不是拦路虎；
+         但删除文章是**真的**需要身份，后端会拒绝 -->
     <div class="notice" id="notice" hidden></div>
 
     <!-- ==================== 标签页 ==================== -->
@@ -176,8 +176,7 @@
     async function init() {
         await loadAll();
 
-        initIdentityPicker(state.users, '#identitySelect');
-        renderCurrentIdentity('#who');
+        renderLoginState('#who');
         initSearchBox();
 
         bindTabs();
@@ -226,7 +225,7 @@
             + state.users.length + ' 位用户';
     }
 
-    /** 没选身份时在页面顶部挂条提醒 */
+    /** 没登录时在页面顶部挂条提醒 */
     function updateNotice() {
         const notice = $('#notice');
         if (getMe()) {
@@ -234,7 +233,7 @@
             return;
         }
         notice.hidden = false;
-        notice.innerHTML = '还没有选择身份。右上角选一个之后再操作，'
+        notice.innerHTML = '还没有登录。右上角登录之后再操作，'
             + '否则删除文章会被后端拒绝 —— 因为后端需要知道"是谁在删"。';
     }
 
@@ -426,7 +425,7 @@
     async function deleteArticle(articleId) {
         const me = getMe();
         if (!me) {
-            toast('请先在右上角选择身份 —— 后端要知道是谁在删');
+            toast('请先登录 —— 后端要知道是谁在删');
             return;
         }
 

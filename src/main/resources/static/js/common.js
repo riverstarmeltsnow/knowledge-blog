@@ -60,6 +60,46 @@ function post(path, body) {
     return api('POST', path, body);
 }
 
+/**
+ * 发一个表单格式的 POST（application/x-www-form-urlencoded）。
+ *
+ * 和 post() 的区别只在请求体怎么编码：
+ *   post()     —— JSON 体，服务端用 @RequestBody 接
+ *   postForm() —— 表单体，服务端用 @RequestParam 接
+ *
+ * 登录接口的签名是 @RequestParam，本来靠查询串也能传，
+ * 但那样密码会出现在地址栏、浏览器历史和后端访问日志里。
+ * 同样的参数放进请求体，服务端照样收得到，路上却干净得多。
+ *
+ * @param {string} path
+ * @param {object} params 形如 {username:'hexin', password:'123456'}
+ * @returns {Promise<*>} 成功时是后端的 data 字段
+ * @throws {Error} 和 api() 一样，失败时抛出可以直接显示的 message
+ */
+async function postForm(path, params) {
+    const body = new URLSearchParams();
+    for (const key in params) {
+        body.append(key, params[key]);
+    }
+
+    let result;
+    try {
+        const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+            body: body
+        });
+        result = await response.json();
+    } catch (e) {
+        throw new Error('连不上服务器，请确认后端已经启动');
+    }
+
+    if (result.code !== 200) {
+        throw new Error(result.msg || '请求失败');
+    }
+    return result.data;
+}
+
 /** PUT 的简写 */
 function put(path, body) {
     return api('PUT', path, body);
@@ -71,7 +111,12 @@ function del(path) {
 }
 
 // ============================================================
-// 二、身份（本实验没有登录会话，用 localStorage 记一下当前选的是谁）
+// 二、登录状态
+//
+// 登录页把 POST /user/login 返回的用户写进 localStorage，其它页面都从
+// 这里读，刷新和跳页都不会丢。注意它只代表**浏览器这一侧**的状态 ——
+// 后端那些 JSON 接口是无状态的，服务端并没有存会话，所以它挡不住
+// "手动改 localStorage 冒充别人"。真正的把关始终在后端。
 // ============================================================
 
 /** localStorage 里存当前用户的键名 */
@@ -80,7 +125,7 @@ const ME_KEY = 'mygit.me';
 /**
  * 取当前"登录"的用户。
  *
- * @returns {object|null} 形如 {userId:1, username:'hexin', role:0}；没选身份时是 null
+ * @returns {object|null} 形如 {userId:1, username:'hexin', role:0}；没登录时是 null
  */
 function getMe() {
     const raw = localStorage.getItem(ME_KEY);
@@ -96,6 +141,17 @@ function setMe(user) {
     } else {
         localStorage.removeItem(ME_KEY);
     }
+}
+
+/**
+ * 退出登录：清掉登录状态，然后回首页。
+ *
+ * 只清浏览器这头的东西 —— 后端压根没存会话，没什么可清的。
+ * 这一点要在演示时讲清楚：这不是"服务端登出"，是无状态接口的必然结果。
+ */
+function logout() {
+    setMe(null);
+    location.href = 'index.html';
 }
 
 /**
@@ -332,7 +388,7 @@ function emptyHtml(text, hint, icon) {
 }
 
 // ============================================================
-// 五、导航栏上的两个通用控件（搜索框、身份选择器）
+// 五、导航栏上的两个通用控件（搜索框、登录状态）
 // ============================================================
 
 /**
@@ -364,56 +420,32 @@ function initSearchBox() {
 }
 
 /**
- * 把导航栏里的身份下拉框填好，并绑定切换事件。
+ * 往导航栏里填登录状态。
  *
- * @param {object[]} users 全部用户，来自 GET /user/list
- * @param {string} selectSelector 下拉框的选择器
- */
-function initIdentityPicker(users, selectSelector) {
-    const select = document.querySelector(selectSelector);
-    if (!select) {
-        return;
-    }
-
-    const me = getMe();
-    let html = '<option value="">未选择身份</option>';
-    users.forEach(user => {
-        const roleTag = user.role === 1 ? '（管理员）' : '';
-        html += '<option value="' + user.userId + '">'
-            + escapeHtml(user.username) + roleTag + '</option>';
-    });
-    select.innerHTML = html;
-
-    // 上次选的身份在 localStorage 里存着，刷新页面要接着用
-    if (me) {
-        select.value = String(me.userId);
-    }
-
-    select.addEventListener('change', () => {
-        const picked = users.find(u => String(u.userId) === select.value);
-        setMe(picked || null);
-
-        // 换了身份，页面上那些"只有作者能点"的按钮要跟着变灰或变亮，
-        // 所以直接刷一次页面最省事 —— 比逐个更新按钮状态可靠
-        location.reload();
-    });
-}
-
-/**
- * 往导航栏里填当前身份的文字，没选身份时提示一下。
+ * 没登录：显示「登录 / 注册」两个入口。
+ * 登录了：显示用户名（管理员多挂一个徽章）和「退出」。
  *
- * @param {string} selector 显示身份的元素选择器
+ * 每个页面的 init 里都调一次。它读的是 localStorage，所以登录之后
+ * 跳回首页，导航栏自己就变成已登录的样子，不用页面之间互相传状态。
+ *
+ * @param {string} selector 显示登录状态的元素选择器
  */
-function renderCurrentIdentity(selector) {
+function renderLoginState(selector) {
     const el = document.querySelector(selector);
     if (!el) {
         return;
     }
+
     const me = getMe();
     if (!me) {
-        el.innerHTML = '<span class="who-empty">未选择身份 · 只能浏览</span>';
+        el.innerHTML = '<a class="nav-auth-link" href="login.html">登录</a>'
+            + '<span class="nav-auth-sep">/</span>'
+            + '<a class="nav-auth-link" href="register.html">注册</a>';
         return;
     }
+
     const roleTag = me.role === 1 ? '<span class="badge badge-admin">管理员</span>' : '';
-    el.innerHTML = '<span class="who-name">' + escapeHtml(me.username) + '</span>' + roleTag;
+    el.innerHTML = '<span class="who-name">' + escapeHtml(me.username) + '</span>'
+        + roleTag
+        + '<button class="nav-auth-out" type="button" onclick="logout()">退出</button>';
 }

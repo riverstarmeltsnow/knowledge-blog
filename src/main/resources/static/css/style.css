@@ -198,7 +198,7 @@ h1, h2, h3, h4 {
     background: var(--brand-soft);
 }
 
-/* 身份区 */
+/* 登录区 */
 .who {
     display: flex;
     align-items: center;
@@ -212,26 +212,37 @@ h1, h2, h3, h4 {
     color: var(--ink);
 }
 
-.who-empty {
+/* 没登录时那两个入口：「登录 / 注册」 */
+.nav-auth-link {
+    color: var(--ink-soft);
+    text-decoration: none;
+    transition: color .14s;
+}
+
+.nav-auth-link:hover {
+    color: var(--brand);
+    text-decoration: none;
+}
+
+/* 中间那个斜杠，比文字还淡一档，免得两个链接看起来像一句话 */
+.nav-auth-sep {
     color: var(--ink-faint);
 }
 
-.identity-select {
-    height: 36px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--ink);
+/* 已登录时的「退出」：做成不起眼的文字按钮，不跟搜索框抢注意力 */
+.nav-auth-out {
+    border: none;
+    background: transparent;
+    padding: 0 0 0 4px;
+    color: var(--ink-faint);
     font-family: var(--font-sans);
     font-size: 13px;
-    padding: 0 8px;
     cursor: pointer;
-    max-width: 150px;
+    transition: color .14s;
 }
 
-.identity-select:focus {
-    outline: none;
-    border-color: var(--brand);
+.nav-auth-out:hover {
+    color: var(--danger);
 }
 
 /* 小徽章：管理员之类的标记 */
@@ -1197,7 +1208,7 @@ button.tag-chip:hover {
     border-top: 1px solid var(--line);
 }
 
-/* 页面顶部的提醒条（比如"还没选身份"） */
+/* 页面顶部的提醒条（比如"还没登录"） */
 .notice {
     padding: 12px 16px;
     margin-bottom: 22px;
@@ -1207,6 +1218,74 @@ button.tag-chip:hover {
     font-size: 13.5px;
     line-height: 1.65;
     color: var(--brand-deep);
+}
+
+/* ============================================================
+   登录 / 注册页
+   ============================================================ */
+
+/* 卡片窄一点居中放，填表时视线不用左右扫 */
+.auth-card {
+    max-width: 400px;
+    margin: 18px auto 0;
+    padding: 32px 34px 28px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+}
+
+.auth-title {
+    font-size: 23px;
+    margin-bottom: 7px;
+}
+
+.auth-sub {
+    font-size: 13px;
+    color: var(--ink-faint);
+    margin-bottom: 26px;
+}
+
+/* 后端返回的错误（用户名已存在、密码错误……）显示在按钮上方。
+   默认藏起来，出错时加 .show 让它露面 —— 显隐交给 CSS，
+   JS 那边只管塞文字，不用来回切 element.style.display */
+.auth-err {
+    display: none;
+    margin-bottom: 16px;
+    padding: 10px 13px;
+    background: #fdf3f3;
+    border: 1px solid #f0d5d5;
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.auth-err.show {
+    display: block;
+}
+
+.auth-card .form-actions {
+    margin-top: 26px;
+}
+
+.auth-card .form-actions .btn {
+    width: 100%;
+}
+
+/* 卡片底下的「还没有账号？去注册」 */
+.auth-alt {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    text-align: center;
+    font-size: 13px;
+    color: var(--ink-soft);
+}
+
+.auth-alt a {
+    color: var(--brand);
+    font-weight: 600;
 }
 
 /* ============================================================
