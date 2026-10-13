@@ -32,7 +32,7 @@
 | 归档 | 按「年-月」排布全部文章，左栏按年份索引跳转 |
 | 首页三档 | 热门（按浏览量）、最新（按发布时间）、推荐（只看我关注的人） |
 | 关注 | 在文章详情页关注作者，他的文章会进推荐流并在卡片上标「已关注」 |
-| 后台管理 | 文章、分类、标签、用户四个模块的增删改查 |
+| 后台管理 | 文章、分类、标签、用户四个模块的增删改查；分类与标签仅管理员可写，用户资料本人或管理员可写 |
 
 后端提供 **42 个 REST 接口**（文章 18 / 关注 4 / 分类 5 / 评论 4 / 标签 5 / 用户 6）。
 
@@ -48,7 +48,8 @@ Mygit/
 │   └── *.png                          # ER 图、用例图、功能模块图
 ├── src/main/java/cuit/mygit/
 │   ├── common/                        # Result 统一响应体、PageResult 分页结果、ValidGroup 校验分组、
-│   │                                  # MarkdownRenderer 渲染器、ArchiveItem/ArchiveMonth 归档结果
+│   │                                  # MarkdownRenderer 渲染器、PermissionChecker 权限校验器、
+│   │                                  # ArchiveItem/ArchiveMonth 归档结果
 │   ├── controller/                    # 6 个 REST 控制器
 │   ├── entity/                        # 7 个实体类，与数据表一一对应
 │   ├── exception/                     # BusinessException + GlobalExceptionHandler
@@ -59,7 +60,9 @@ Mygit/
 │   ├── mapper/*.xml                   # 7 个 MyBatis XML 映射文件
 │   ├── static/                        # 前台静态页面
 │   └── templates/admin/               # 后台 Thymeleaf 模板
-└── src/test/java/cuit/mygit/service/  # 6 个 Service 单元测试
+└── src/test/java/cuit/mygit/
+    ├── common/                        # MarkdownRenderer、PermissionChecker 的单元测试
+    └── service/                       # 6 个 Service 单元测试
 ```
 
 ## 快速开始
@@ -99,6 +102,8 @@ mvn spring-boot:run
 - **草稿的可见性在 SQL 层过滤**：公开查询一律带 `WHERE status = 1`，草稿只有作者本人和管理员取得到。没有采用「全部查出再在前端隐藏」的做法——那样草稿的标题和 ID 已经随 JSON 发到浏览器，按 F12 就能看见
 - **Markdown 存原文、渲染在服务端**：数据库里存的是 Markdown 源码，显示时才渲染成 HTML。渲染器关掉了原生 HTML 透传（`escapeHtml(true)`）并过滤 `javascript:` 链接（`sanitizeUrls(true)`），避免正文成为 XSS 通道；编辑器预览走同一个渲染接口，保证「预览即所得」
 - **越权写的防护在后端**：编辑、删除、改标签都要求请求里带上 `operatorId`，由 Service 校验「作者本人或管理员」。前端的按钮置灰只是少让人白点一次，不是安全边界
+- **权限规则只有一份**：`PermissionChecker` 提供 `checkOwnerOrAdmin`（本人或管理员）和 `checkAdmin`（仅管理员）两条规则，文章、评论、用户走前者，分类、标签走后者。规则基于数据的归属方式而定——文章有作者、评论有作者、用户资料有本人，所以能放宽到「本人也可」；`category` 和 `tag` 表没有 owner 列，分类和标签是全站共用的字典数据，不存在「我的分类」，因此只能管理员写。抽取之前 `ArticleServiceImpl` 和 `CommentServiceImpl` 各存了一份逐字相同的私有 `checkPermission`，再加三个模块就是五份；现在规则由 `PermissionCheckerTest` 单独钉住，各 Service 的测试改为验证「拒绝时一个字都没写库」和「传下去的 ownerId 对不对」——后者才是容易出错的地方，ownerId 传成操作人自己的 ID，权限照样能过，但结果是谁都能改别人的文章
+- **「改自己」放宽的是资料，不包括身份**：用户资料本人可以改，但 `role` 字段在 `UserServiceImpl.update` 里被单独收紧了——非管理员提交的角色值一律丢弃、沿用药里的原值，只有管理员能授予或撤销管理员身份。放宽到「本人也可」时很容易漏掉这类字段级的例外：`/user/update` 若原样照抄请求体里的 `role`，普通用户改一次自己的资料就能把自己变成管理员，整条规则也就形同虚设
 - **归档用「一条 SQL 拉全量 + 内存分组」**：`DATE_FORMAT(create_time, '%Y-%m')` 在 SQL 里算出所属月份并排好序，Java 侧只做「分堆」，一次查询覆盖整页。换成「先查月份列表、再按月份查文章」会变成 N+1 次查询；换成 `GROUP BY` 又得配 `GROUP_CONCAT` 才能把文章带出来，更难读
 - **评论不可编辑**：`comment` 是唯一没有 Update 操作的表，刻意保持「发出即不可修改」的语义
 - **分类与标签的建模范式**：分类是一对多（`article.category_id` 外键），标签是多对多（`article_tag` 中间表），用两种不同的数据结构解决两种内容组织需求

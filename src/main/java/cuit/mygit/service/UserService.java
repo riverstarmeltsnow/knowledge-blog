@@ -49,25 +49,31 @@ public interface UserService {
     User login(String username, String password);
 
     /**
-     * 修改用户资料。
+     * 修改用户资料（本人或管理员）。
      * <p>
      * 有两个细节：改用户名时要重新检查有没有和别人撞名；
      * 不传密码就表示"不改密码"，原来的密码会保留。
+     * <p>
+     * 权限上放宽到"本人也可以"：改自己的资料、改自己的密码是注册之后最基本的需要，
+     * 要是只允许管理员，普通用户想换个邮箱都得去找管理员。
+     * 但改<b>别人</b>的资料必须管理员 —— 那已经不是"维护自己的账号"了。
      *
-     * @param user 要改的用户，必须带 userId
-     * @throws cuit.mygit.exception.BusinessException 用户不存在、新用户名被占用时抛出
+     * @param user       要改的用户，必须带 userId
+     * @param operatorId 操作人ID（当前登录用户）
+     * @throws cuit.mygit.exception.BusinessException 操作人既不是本人也不是管理员、用户不存在、新用户名被占用时抛出
      */
-    void update(User user);
+    void update(User user, Integer operatorId);
 
     /**
-     * 删除用户。
+     * 删除用户（本人或管理员）。
      * <p>
      * 用户写的文章会被保留（文章是博客的主体内容），所以
      * **如果该用户还写过文章，就不允许删除**，必须先处理掉那些文章。
      * 该用户发过的评论会一并删掉（评论跟着人走）。
      *
-     * @param userId 用户ID
-     * @throws cuit.mygit.exception.BusinessException 用户不存在、或该用户还有文章时抛出
+     * @param userId     用户ID
+     * @param operatorId 操作人ID（当前登录用户）
+     * @throws cuit.mygit.exception.BusinessException 操作人既不是本人也不是管理员、用户不存在、或该用户还有文章时抛出
      */
-    void delete(Integer userId);
+    void delete(Integer userId, Integer operatorId);
 }

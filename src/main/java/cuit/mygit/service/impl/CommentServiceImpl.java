@@ -1,7 +1,7 @@
 package cuit.mygit.service.impl;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Comment;
-import cuit.mygit.entity.User;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
 import cuit.mygit.mapper.CommentMapper;
@@ -32,6 +32,10 @@ public class CommentServiceImpl implements CommentService {
     /** 发表评论前要确认这篇文章真实存在（comment.article_id 有外键） */
     @Autowired
     private ArticleMapper articleMapper;
+
+    /** 删评论要判断"是不是本人或管理员" */
+    @Autowired
+    private PermissionChecker permissionChecker;
 
     @Override
     public List<Comment> listByArticle(Integer articleId) {
@@ -118,7 +122,7 @@ public class CommentServiceImpl implements CommentService {
         }
 
         // 只能删自己的评论；管理员例外，能删任何人的
-        checkPermission(operatorId, comment.getUserId(), "删除这条评论");
+        permissionChecker.checkOwnerOrAdmin(operatorId, comment.getUserId(), "删除这条评论");
 
         // 删顶层评论时，挂在它下面的回复也要一起删掉，不然会留下没有归属的孤儿回复。
         // 顺序不能反：回复的 parent_id 指着顶层评论，先删顶层评论会被外键拦住。
@@ -129,40 +133,6 @@ public class CommentServiceImpl implements CommentService {
 
         // @Transactional 保证这两步是一个整体：
         // 万一第二步失败，第一步删掉的回复会回滚，不会出现"回复没了但评论还在"。
-    }
-
-    /**
-     * 检查操作人有没有资格动这条数据。
-     * <p>
-     * 规则和 {@link ArticleServiceImpl} 里删文章时用的完全一样：
-     * 本人可以，管理员可以，其他人不行。
-     *
-     * @param operatorId 操作人ID（当前登录用户）
-     * @param ownerId    数据的主人ID（评论作者、文章作者）
-     * @param action     要做的动作，用来拼错误提示，如"删除这条评论"
-     * @throws BusinessException 操作人不存在或没权限时抛出
-     */
-    private void checkPermission(Integer operatorId, Integer ownerId, String action) {
-        if (operatorId == null) {
-            throw new BusinessException("缺少操作人ID");
-        }
-        User operator = userMapper.selectById(operatorId);
-        if (operator == null) {
-            throw new BusinessException("操作人不存在：" + operatorId);
-        }
-
-        // 情况一：自己写的内容，自己当然能删
-        if (operatorId.equals(ownerId)) {
-            return;
-        }
-
-        // 情况二：管理员（role = 1）能删任何人的
-        if (Integer.valueOf(1).equals(operator.getRole())) {
-            return;
-        }
-
-        // 情况三：既不是本人也不是管理员，拒绝
-        throw new BusinessException("没有权限" + action + "（只有作者本人和管理员可以操作）");
     }
 
     /** 判断字符串是不是空的（null 或只有空格） */

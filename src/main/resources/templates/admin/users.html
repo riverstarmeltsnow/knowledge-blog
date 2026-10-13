@@ -22,11 +22,24 @@
 
 <nav th:replace="~{admin/layout :: nav('users')}"></nav>
 
-<main class="adm-wrap">
+<!--
+  用户和分类、标签不一样：用户是**有主人**的数据，主人就是他自己。
+  所以这里的规则是多一层的 —— 改自己的资料谁都可以，改别人的要管理员。
+  判断写成「本人 或 管理员」，就是下面每个 tr 里那个 me != null and (...)。
+
+  和分类页一样，这一层只负责显隐，真正的把关在
+  PermissionChecker.checkOwnerOrAdmin（后端）。
+-->
+<main class="adm-wrap"
+      th:with="me=${session.currentUser}">
 
     <div th:replace="~{admin/layout :: flash}"></div>
 
     <!-- ==================== 新增 ==================== -->
+    <!--
+      这一块不按角色收 —— 它走的是 /admin/users → UserService.register，
+      也就是公开的注册接口，前台注册页用的是同一个。注册本来就对所有人开放。
+    -->
     <h1 class="adm-h1">新增用户</h1>
 
     <form method="post" th:action="@{/admin/users}" th:object="${user}" class="adm-inline-form">
@@ -58,6 +71,7 @@
             <!-- 中间几列合成一格，这一格里装的是一个完整的表单 -->
             <td colspan="1">
                 <form method="post" class="adm-row-form"
+                      th:if="${me != null and (me.userId == u.userId or me.role == 1)}"
                       th:action="@{/admin/users/{id}(id=${u.userId})}">
 
                     <input class="adm-input adm-input-sm" type="text" name="username"
@@ -86,14 +100,26 @@
 
                     <button class="btn btn-sm" type="submit">保存</button>
                 </form>
+
+                <!-- 改不了的人看到的是只读版，不是一堆填了也提交不了的输入框 -->
+                <span th:unless="${me != null and (me.userId == u.userId or me.role == 1)}">
+                    <b th:text="${u.username}">用户名</b>
+                    <span class="adm-soft" th:text="${u.email} ?: '（无邮箱）'">邮箱</span>
+                    <span class="adm-role"
+                          th:classappend="${u.role != null and u.role == 1 ? 'adm-role-admin' : ''}"
+                          th:text="${u.role != null and u.role == 1 ? '管理员' : '普通用户'}">普通用户</span>
+                </span>
             </td>
 
             <td>
                 <form method="post"
+                      th:if="${me != null and (me.userId == u.userId or me.role == 1)}"
                       th:action="@{/admin/users/{id}/delete(id=${u.userId})}"
                       onsubmit="return confirm('确定删除这个用户吗？他发过的评论也会一并删掉。');">
                     <button class="btn btn-danger btn-sm" type="submit">删除</button>
                 </form>
+                <span class="adm-soft"
+                      th:unless="${me != null and (me.userId == u.userId or me.role == 1)}">—</span>
             </td>
         </tr>
 

@@ -1,5 +1,6 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.Comment;
 import cuit.mygit.entity.User;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -53,6 +55,16 @@ class CommentServiceImplTest {
 
     @Mock
     private ArticleMapper articleMapper;
+
+    /**
+     * 权限校验器用 mock，规则本身由 {@code PermissionCheckerTest} 负责。
+     * 这里要盯的是"删评论时有没有把<b>评论作者</b>的 ID 传下去"。
+     * <p>
+     * 注意 {@code userMapper} 还是要留着 —— {@code add} 里
+     * "评论人存不存在"那一步仍然要查用户表，和权限不是一回事。
+     */
+    @Mock
+    private PermissionChecker permissionChecker;
 
     @InjectMocks
     private CommentServiceImpl commentService;
@@ -288,7 +300,8 @@ class CommentServiceImplTest {
     @DisplayName("删除评论：不是作者也不是管理员时拒绝，且不删数据")
     void delete_notOwnerAndNotAdmin() {
         when(commentMapper.selectById(5)).thenReturn(buildComment(5, 1, 1));  // 评论是 1 号写的
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));          // 操作人 2 号是普通用户
+        doThrow(new BusinessException("没有权限删除这条评论（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(2, 1, "删除这条评论");
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> commentService.delete(5, 2));
@@ -303,9 +316,10 @@ class CommentServiceImplTest {
     @DisplayName("删除顶层评论：按'先删回复、再删自己'的顺序（顺序反了会被外键拦住）")
     void delete_topLevelComment_cascadesRepliesInOrder() {
         when(commentMapper.selectById(5)).thenReturn(buildComment(5, 1, 1));  // 顶层评论
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));          // 作者本人
 
         commentService.delete(5, 1);
+
+        verify(permissionChecker).checkOwnerOrAdmin(1, 1, "删除这条评论");
 
         // reply.parent_id 有外键指向 comment.comment_id，
         // 先删顶层评论会被"外键约束失败"拦下，所以顺序必须验证
@@ -319,9 +333,12 @@ class CommentServiceImplTest {
     void delete_reply_alsoClearsItsOwnReplies() {
         // 6 号是挂在顶层评论 5 下面的回复
         when(commentMapper.selectById(6)).thenReturn(buildReply(6, 2, 1, 5));
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));
 
         commentService.delete(6, 2);
+
+        // 权限那一关看的是**评论作者的 ID**（回复的 userId 是 2），
+        // 不是 parentId 那个 5 —— 传错了就会让被回复的人能删别人的回复
+        verify(permissionChecker).checkOwnerOrAdmin(2, 2, "删除这条评论");
 
         // 回复下面不会再有回复，这句删除影响 0 行；
         // 保留它是为了让删除逻辑不分叉（不用先判断是顶层还是回复）
@@ -333,22 +350,22 @@ class CommentServiceImplTest {
     @DisplayName("删除评论：作者本人可以删自己的评论")
     void delete_byAuthor() {
         when(commentMapper.selectById(5)).thenReturn(buildComment(5, 1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         commentService.delete(5, 1);
 
         verify(commentMapper).deleteById(5);
+        verify(permissionChecker).checkOwnerOrAdmin(1, 1, "删除这条评论");
     }
 
     @Test
     @DisplayName("删除评论：管理员可以删别人的评论")
     void delete_byAdmin() {
         when(commentMapper.selectById(5)).thenReturn(buildComment(5, 1, 1));  // 评论是 1 号写的
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));          // 操作人 2 号是管理员
 
         commentService.delete(5, 2);
 
         verify(commentMapper).deleteById(5);
+        verify(permissionChecker).checkOwnerOrAdmin(2, 1, "删除这条评论");
     }
 
     @Test
@@ -363,10 +380,13 @@ class CommentServiceImplTest {
     }
 
     @Test
-    @DisplayName("删除评论：操作人不存在时拒绝")
+    @DisplayName("删除评论：操作人不存在时拒绝（checker 抛出的异常要能传上来）")
     void delete_operatorNotExist() {
         when(commentMapper.selectById(5)).thenReturn(buildComment(5, 1, 1));
-        when(userMapper.selectById(999)).thenReturn(null);
+        // "操作人存不存在"现在是 checker 的事，这里只验证它抛出来之后
+        // Service 不会硬着头皮往下删
+        doThrow(new BusinessException("操作人不存在：999"))
+                .when(permissionChecker).checkOwnerOrAdmin(999, 1, "删除这条评论");
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> commentService.delete(5, 999));

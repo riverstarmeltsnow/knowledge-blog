@@ -37,10 +37,10 @@
         <p class="page-sub" id="pageSub"></p>
     </div>
 
-    <!-- 没登录时顶上挂一条提醒。后端对分类/标签/用户这些接口
-         没有做"必须登录"的校验 —— 登录状态只存在浏览器这头，
-         接口本身是无状态的，所以这只是提醒，不是拦路虎；
-         但删除文章是**真的**需要身份，后端会拒绝 -->
+    <!-- 没登录时顶上挂一条提醒。登录状态只存在浏览器这头，
+         接口本身是无状态的，前端能做的永远只是"提前说一声"；
+         真正把关的是后端 —— 所有写接口都要求带上 operatorId，
+         文章/评论/用户资料要"本人或管理员"，分类和标签要管理员 -->
     <div class="notice" id="notice" hidden></div>
 
     <!-- ==================== 标签页 ==================== -->
@@ -77,7 +77,9 @@
     <section class="admin-panel" id="panel-category">
         <div class="panel-head">
             <h2 class="panel-title">分类</h2>
-            <button class="btn btn-primary" onclick="openCategoryForm(null)">新增分类</button>
+            <!-- 分类没有主人，增删改只有管理员能做，所以这个按钮只给管理员看 -->
+            <button class="btn btn-primary" data-admin-only
+                    onclick="openCategoryForm(null)">新增分类</button>
         </div>
         <table class="data-table">
             <thead>
@@ -97,7 +99,9 @@
     <section class="admin-panel" id="panel-tag">
         <div class="panel-head">
             <h2 class="panel-title">标签</h2>
-            <button class="btn btn-primary" onclick="openTagForm(null)">新增标签</button>
+            <!-- 同上：标签也是全站共用、没有主人的数据 -->
+            <button class="btn btn-primary" data-admin-only
+                    onclick="openTagForm(null)">新增标签</button>
         </div>
         <table class="data-table">
             <thead>
@@ -183,6 +187,7 @@
         bindTabs();
         bindModal();
         updateNotice();
+        applyRoleVisibility();
 
         // 从文章详情页点"编辑"跳过来时带着 ?edit=3，直接帮他打开那篇
         const editId = new URLSearchParams(location.search).get('edit');
@@ -243,13 +248,38 @@
     /** 没登录时在页面顶部挂条提醒 */
     function updateNotice() {
         const notice = $('#notice');
-        if (getMe()) {
-            notice.hidden = true;
+        const me = getMe();
+
+        if (me) {
+            // 管理员不用提醒什么，他什么都能干
+            if (me.role === 1) {
+                notice.hidden = true;
+                return;
+            }
+            notice.hidden = false;
+            notice.innerHTML = '当前是普通用户。你能：发表和修改<b>自己的</b>文章、'
+                + '给自己的文章贴标签、改自己的资料。'
+                + '分类和标签是全站共用的字典数据，只有管理员能增删改。';
             return;
         }
+
         notice.hidden = false;
         notice.innerHTML = '还没有登录。右上角登录之后再操作，'
-            + '否则删除文章会被后端拒绝 —— 因为后端需要知道"是谁在删"。';
+            + '否则所有写操作都会被后端拒绝 —— 因为后端需要知道"是谁在改"。';
+    }
+
+    /**
+     * 按当前身份显示/隐藏那些"只有管理员能用"的按钮（页面上标了 data-admin-only 的）。
+     *
+     * 这一步<b>不是安全措施</b>，只是别让普通用户点了才发现不行 ——
+     * 一个看得见却点不动的按钮，比干脆不显示更让人困惑。
+     * 真正的把关在后端：这些按钮对应的接口会调 PermissionChecker.checkAdmin。
+     */
+    function applyRoleVisibility() {
+        const admin = isAdmin();
+        $$('[data-admin-only]').forEach(el => {
+            el.hidden = !admin;
+        });
     }
 
     // ==================== 标签页切换 ====================
@@ -699,8 +729,13 @@
             +   '<td>' + (escapeHtml(category.description) || '—') + '</td>'
             +   '<td>' + (counts[category.categoryId] || 0) + '</td>'
             +   '<td class="row-actions">'
-            +     '<button onclick="openCategoryForm(' + category.categoryId + ')">编辑</button>'
-            +     '<button class="danger" onclick="deleteCategory(' + category.categoryId + ')">删除</button>'
+            // 分类是全站共用的，没有"我的分类"这种说法，
+            // 所以这里判断的是 isAdmin 而不是 canTouch —— 后者会多问一句"是不是本人"，
+            // 而这个问题对分类根本无从谈起
+            +     (isAdmin()
+                    ? '<button onclick="openCategoryForm(' + category.categoryId + ')">编辑</button>'
+                      + '<button class="danger" onclick="deleteCategory(' + category.categoryId + ')">删除</button>'
+                    : '<span class="row-locked" title="分类只有管理员能改">—</span>')
             +   '</td>'
             + '</tr>').join('');
     }
@@ -724,12 +759,20 @@
                 description: $('#fDescription').value.trim()
             };
 
+            // 所有写接口都要说清"谁在操作"。没登录就不发请求 ——
+            // 发过去也只会被后端回一句"缺少操作人ID"，不如提前说人话
+            const me = getMe();
+            if (!me) {
+                toast('请先登录，再修改分类');
+                return;
+            }
+
             try {
                 if (categoryId) {
                     payload.categoryId = categoryId;
-                    await put('/category/update', payload);
+                    await put(withQuery('/category/update', { operatorId: me.userId }), payload);
                 } else {
-                    await post('/category/add', payload);
+                    await post(withQuery('/category/add', { operatorId: me.userId }), payload);
                 }
                 toast('已保存', 'ok');
                 closeModal();
@@ -744,8 +787,13 @@
         if (!confirm('确定删除这个分类吗？\n如果下面还有文章，后端会拒绝 —— 要先把那些文章改到别的分类。')) {
             return;
         }
+        const me = getMe();
+        if (!me) {
+            toast('请先登录，再删除分类');
+            return;
+        }
         try {
-            await del('/category/' + categoryId);
+            await del(withQuery('/category/' + categoryId, { operatorId: me.userId }));
             toast('已删除', 'ok');
             await loadAll();
         } catch (e) {
@@ -768,8 +816,11 @@
             +   '<td>' + tag.tagId + '</td>'
             +   '<td>' + escapeHtml(tag.name) + '</td>'
             +   '<td class="row-actions">'
-            +     '<button onclick="openTagForm(' + tag.tagId + ')">编辑</button>'
-            +     '<button class="danger" onclick="deleteTag(' + tag.tagId + ')">删除</button>'
+            // 和分类同理：标签也没有主人
+            +     (isAdmin()
+                    ? '<button onclick="openTagForm(' + tag.tagId + ')">编辑</button>'
+                      + '<button class="danger" onclick="deleteTag(' + tag.tagId + ')">删除</button>'
+                    : '<span class="row-locked" title="标签只有管理员能改">—</span>')
             +   '</td>'
             + '</tr>').join('');
     }
@@ -786,12 +837,18 @@
         openModal(tagId ? '编辑标签' : '新增标签', body, async () => {
             const payload = { name: $('#fName').value.trim() };
 
+            const me = getMe();
+            if (!me) {
+                toast('请先登录，再修改标签');
+                return;
+            }
+
             try {
                 if (tagId) {
                     payload.tagId = tagId;
-                    await put('/tag/update', payload);
+                    await put(withQuery('/tag/update', { operatorId: me.userId }), payload);
                 } else {
-                    await post('/tag/add', payload);
+                    await post(withQuery('/tag/add', { operatorId: me.userId }), payload);
                 }
                 toast('已保存', 'ok');
                 closeModal();
@@ -806,8 +863,13 @@
         if (!confirm('确定删除这个标签吗？\n贴了它的文章不会被删，只是这个标签从那些文章上摘掉。')) {
             return;
         }
+        const me = getMe();
+        if (!me) {
+            toast('请先登录，再删除标签');
+            return;
+        }
         try {
-            await del('/tag/' + tagId);
+            await del(withQuery('/tag/' + tagId, { operatorId: me.userId }));
             toast('已删除', 'ok');
             await loadAll();
         } catch (e) {
@@ -835,8 +897,12 @@
                     : '普通用户') + '</td>'
             +   '<td>' + formatTime(user.createTime) + '</td>'
             +   '<td class="row-actions">'
-            +     '<button onclick="openUserForm(' + user.userId + ')">编辑</button>'
-            +     '<button class="danger" onclick="deleteUser(' + user.userId + ')">删除</button>'
+            // 用户是有主人的数据，"主人"就是他本人，所以这里用 canTouch ——
+            // 改自己的资料、删自己的账号都放行，动别人就得是管理员
+            +     (canTouch(user.userId)
+                    ? '<button onclick="openUserForm(' + user.userId + ')">编辑</button>'
+                      + '<button class="danger" onclick="deleteUser(' + user.userId + ')">删除</button>'
+                    : '<span class="row-locked" title="只有本人和管理员能改">—</span>')
             +   '</td>'
             + '</tr>').join('');
     }
@@ -845,6 +911,11 @@
         const user = userId
             ? state.users.find(u => u.userId === userId)
             : { username: '', email: '', role: 0 };
+
+        const roleSelect = '<select id="fRole">'
+            + '<option value="0"' + (user.role !== 1 ? ' selected' : '') + '>普通用户</option>'
+            + '<option value="1"' + (user.role === 1 ? ' selected' : '') + '>管理员</option>'
+            + '</select>';
 
         const body = ''
             + field('用户名 *',
@@ -857,34 +928,52 @@
             + field('邮箱',
                 '<input type="email" id="fEmail" maxlength="100" value="'
                 + escapeHtml(user.email) + '">')
-            + field('角色',
-                '<select id="fRole">'
-                + '<option value="0"' + (user.role !== 1 ? ' selected' : '') + '>普通用户</option>'
-                + '<option value="1"' + (user.role === 1 ? ' selected' : '') + '>管理员</option>'
-                + '</select>');
+            // 角色下拉框只给两种情况看：
+            //   新增 —— /user/register 本来就是公开接口，能选角色是既有行为
+            //   管理员编辑 —— 管理员本来就有权改任何人的角色
+            // 普通用户编辑自己的资料时不给看。否则改个邮箱的顺手下拉里
+            // 还摆着"管理员"这一项，等于给了一条自助提权的路。
+            // 这一层是前端挡的；后端那边角色字段怎么处理的取舍，
+            // 和注册接口是同一个问题，见 README
+            + field('角色', (userId && !isAdmin())
+                ? '<div class="field-hint">角色只有管理员能改</div>'
+                : roleSelect);
 
         openModal(userId ? '编辑用户' : '新增用户', body, async () => {
             const password = $('#fPassword').value;
+
+            const me = getMe();
+            if (!me) {
+                toast('请先登录，再保存');
+                return;
+            }
+
+            // 上面那一段说明的落地：下拉框不在页面上，就不往下发 role 字段。
+            // 后端见到 role 是 null 会沿用库里的原值，不会被清成 0
+            const roleField = $('#fRole');
+            const role = roleField ? Number(roleField.value) : null;
 
             try {
                 if (userId) {
                     const payload = {
                         userId: userId,
-                        email: $('#fEmail').value.trim(),
-                        role: Number($('#fRole').value)
+                        email: $('#fEmail').value.trim()
                     };
+                    if (role !== null) {
+                        payload.role = role;
+                    }
                     // 密码留空就整个字段都不传，后端会保留原密码。
                     // 传个空串过去会被 @Size 之外的服务层逻辑判成"改成空密码"
                     if (password) {
                         payload.password = password;
                     }
-                    await put('/user/update', payload);
+                    await put(withQuery('/user/update', { operatorId: me.userId }), payload);
                 } else {
                     await post('/user/register', {
                         username: $('#fUsername').value.trim(),
                         password: password,
                         email: $('#fEmail').value.trim(),
-                        role: Number($('#fRole').value)
+                        role: role === null ? 0 : role
                     });
                 }
                 toast('已保存', 'ok');
@@ -908,8 +997,13 @@
         if (!confirm('确定删除这个用户吗？\n如果他还写过文章，后端会拒绝 —— 要先把那些文章处理掉。')) {
             return;
         }
+        const me2 = getMe();
+        if (!me2) {
+            toast('请先登录，再删除用户');
+            return;
+        }
         try {
-            await del('/user/' + userId);
+            await del(withQuery('/user/' + userId, { operatorId: me2.userId }));
             toast('已删除', 'ok');
             await loadAll();
         } catch (e) {

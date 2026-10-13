@@ -4,6 +4,7 @@ import cuit.mygit.common.ArchiveItem;
 import cuit.mygit.common.ArchiveMonth;
 import cuit.mygit.common.MarkdownRenderer;
 import cuit.mygit.common.PageResult;
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.ArticleTag;
 import cuit.mygit.entity.Tag;
@@ -91,6 +92,10 @@ public class ArticleServiceImpl implements ArticleService {
     /** 把 Markdown 原文渲染成 HTML，塞进 article.contentHtml 给前端用 */
     @Autowired
     private MarkdownRenderer markdownRenderer;
+
+    /** 改文章、删文章、改标签都要先问一句"这个人有没有资格" */
+    @Autowired
+    private PermissionChecker permissionChecker;
 
     @Override
     public List<Article> listAll() {
@@ -247,7 +252,7 @@ public class ArticleServiceImpl implements ArticleService {
         // 只有作者本人或管理员能改。
         // 这一行是补上的：早先这里什么都没查，任何登录用户都能改别人的文章。
         // 放在最前面校验，失败时连"分类存不存在"这种信息都不透露出去。
-        checkPermission(operatorId, old.getUserId(), "修改这篇文章");
+        permissionChecker.checkOwnerOrAdmin(operatorId, old.getUserId(), "修改这篇文章");
 
         if (isBlank(article.getTitle())) {
             throw new BusinessException("文章标题不能为空");
@@ -281,7 +286,7 @@ public class ArticleServiceImpl implements ArticleService {
         }
 
         // 只有作者本人或管理员能删
-        checkPermission(operatorId, article.getUserId(), "删除这篇文章");
+        permissionChecker.checkOwnerOrAdmin(operatorId, article.getUserId(), "删除这篇文章");
 
         // 删除顺序由外键决定，不能乱：
         // comment 和 article_tag 都指着 article，必须先删它们，最后才能删文章本身。
@@ -314,7 +319,7 @@ public class ArticleServiceImpl implements ArticleService {
 
         // 标签是文章内容的一部分，谁能改文章谁才能改它的标签。
         // 不校验的话，别人就能往你的文章上乱贴标签了。
-        checkPermission(operatorId, article.getUserId(), "修改这篇文章的标签");
+        permissionChecker.checkOwnerOrAdmin(operatorId, article.getUserId(), "修改这篇文章的标签");
 
         if (tagMapper.selectById(tagId) == null) {
             throw new BusinessException("标签不存在：" + tagId);
@@ -340,7 +345,7 @@ public class ArticleServiceImpl implements ArticleService {
         if (article == null) {
             throw new BusinessException("文章不存在：" + articleId);
         }
-        checkPermission(operatorId, article.getUserId(), "修改这篇文章的标签");
+        permissionChecker.checkOwnerOrAdmin(operatorId, article.getUserId(), "修改这篇文章的标签");
 
         ArticleTag relation = new ArticleTag(articleId, tagId);
         if (articleTagMapper.selectOne(relation) == null) {
@@ -503,40 +508,6 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     /**
-     * 检查操作人有没有资格动这篇文章。
-     * <p>
-     * 规则和 {@link CommentServiceImpl} 里删评论时用的完全一样：
-     * 本人可以，管理员可以，其他人不行。
-     *
-     * @param operatorId 操作人ID（当前登录用户）
-     * @param ownerId    文章作者ID
-     * @param action     要做的动作，用来拼错误提示，如"删除这篇文章"
-     * @throws BusinessException 操作人不存在或没权限时抛出
-     */
-    private void checkPermission(Integer operatorId, Integer ownerId, String action) {
-        if (operatorId == null) {
-            throw new BusinessException("缺少操作人ID");
-        }
-        User operator = userMapper.selectById(operatorId);
-        if (operator == null) {
-            throw new BusinessException("操作人不存在：" + operatorId);
-        }
-
-        // 情况一：自己写的文章，自己当然能删
-        if (operatorId.equals(ownerId)) {
-            return;
-        }
-
-        // 情况二：管理员（role = 1）能删任何人的
-        if (Integer.valueOf(1).equals(operator.getRole())) {
-            return;
-        }
-
-        // 情况三：既不是作者也不是管理员，拒绝
-        throw new BusinessException("没有权限" + action + "（只有作者本人和管理员可以操作）");
-    }
-
-    /**
      * 这篇文章是不是草稿。
      * <p>
      * status 为 null 时按"已发布"处理 —— 那是这个字段出现之前的老数据，
@@ -552,7 +523,7 @@ public class ArticleServiceImpl implements ArticleService {
     /**
      * 这个人能不能看见"别人的草稿"。
      * <p>
-     * 规则和 {@link #checkPermission} 一样（本人可以，管理员可以），
+     * 规则和 {@link PermissionChecker#checkOwnerOrAdmin} 一样（本人可以，管理员可以），
      * 但这里<b>返回 true/false 而不抛异常</b>：因为调用方拿到"不能看"
      * 之后要抛的是"文章不存在"而不是"没权限" ——
      * 抛什么错是调用方的事，这个方法只负责回答"能不能"。

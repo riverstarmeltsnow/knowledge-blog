@@ -481,6 +481,7 @@ public class AdminController {
     public String createCategory(
             @Validated(ValidGroup.Create.class) @ModelAttribute("category") Category category,
             BindingResult binding,
+            HttpSession session,
             Model model,
             RedirectAttributes flash) {
 
@@ -488,8 +489,19 @@ public class AdminController {
             model.addAttribute("categories", categoryService.listAll());
             return "admin/categories";
         }
+
+        // 分类的增删改只有管理员能做，所以要先知道"你是谁"。
+        // 没选身份的话连操作人都没有，没法往下传 ——
+        // 和文章那几个处理器一个道理，这里只负责页面级的情况，
+        // "选了身份但不是管理员"由 Service 层拒绝
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再新增分类");
+            return "redirect:/admin/categories";
+        }
+
         try {
-            categoryService.add(category);
+            categoryService.add(category, me.getUserId());
             flash.addFlashAttribute("okMsg", "已新增分类「" + category.getName() + "」");
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -498,15 +510,23 @@ public class AdminController {
     }
 
     /**
-     * 修改分类名称和描述。
+     * 修改分类名称和描述（仅管理员）。
      */
     @PostMapping("/categories/{id}")
     public String updateCategory(@PathVariable("id") Integer id,
                                  @ModelAttribute Category category,
+                                 HttpSession session,
                                  RedirectAttributes flash) {
         category.setCategoryId(id);
+
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再修改分类");
+            return "redirect:/admin/categories";
+        }
+
         try {
-            categoryService.update(category);
+            categoryService.update(category, me.getUserId());
             flash.addFlashAttribute("okMsg", "已保存分类 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -515,12 +535,20 @@ public class AdminController {
     }
 
     /**
-     * 删除分类。分类底下还有文章时会被 Service 层拦下来。
+     * 删除分类（仅管理员）。分类底下还有文章时会被 Service 层拦下来。
      */
     @PostMapping("/categories/{id}/delete")
-    public String deleteCategory(@PathVariable("id") Integer id, RedirectAttributes flash) {
+    public String deleteCategory(@PathVariable("id") Integer id,
+                                 HttpSession session,
+                                 RedirectAttributes flash) {
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再执行删除");
+            return "redirect:/admin/categories";
+        }
+
         try {
-            categoryService.delete(id);
+            categoryService.delete(id, me.getUserId());
             flash.addFlashAttribute("okMsg", "已删除分类 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -540,11 +568,12 @@ public class AdminController {
         return "admin/tags";
     }
 
-    /** 新增标签 */
+    /** 新增标签（仅管理员） */
     @PostMapping("/tags")
     public String createTag(
             @Validated(ValidGroup.Create.class) @ModelAttribute("tag") Tag tag,
             BindingResult binding,
+            HttpSession session,
             Model model,
             RedirectAttributes flash) {
 
@@ -552,8 +581,15 @@ public class AdminController {
             model.addAttribute("tags", tagService.listAll());
             return "admin/tags";
         }
+
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再新增标签");
+            return "redirect:/admin/tags";
+        }
+
         try {
-            tagService.add(tag);
+            tagService.add(tag, me.getUserId());
             flash.addFlashAttribute("okMsg", "已新增标签「" + tag.getName() + "」");
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -561,14 +597,22 @@ public class AdminController {
         return "redirect:/admin/tags";
     }
 
-    /** 改标签名 */
+    /** 改标签名（仅管理员） */
     @PostMapping("/tags/{id}")
     public String updateTag(@PathVariable("id") Integer id,
                             @ModelAttribute Tag tag,
+                            HttpSession session,
                             RedirectAttributes flash) {
         tag.setTagId(id);
+
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再修改标签");
+            return "redirect:/admin/tags";
+        }
+
         try {
-            tagService.update(tag);
+            tagService.update(tag, me.getUserId());
             flash.addFlashAttribute("okMsg", "已保存标签 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -576,11 +620,19 @@ public class AdminController {
         return "redirect:/admin/tags";
     }
 
-    /** 删标签（会一并清掉它在中间表里的关联） */
+    /** 删标签（仅管理员，会一并清掉它在中间表里的关联） */
     @PostMapping("/tags/{id}/delete")
-    public String deleteTag(@PathVariable("id") Integer id, RedirectAttributes flash) {
+    public String deleteTag(@PathVariable("id") Integer id,
+                            HttpSession session,
+                            RedirectAttributes flash) {
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再执行删除");
+            return "redirect:/admin/tags";
+        }
+
         try {
-            tagService.delete(id);
+            tagService.delete(id, me.getUserId());
             flash.addFlashAttribute("okMsg", "已删除标签 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -627,19 +679,30 @@ public class AdminController {
     }
 
     /**
-     * 修改用户资料。
+     * 修改用户资料（本人或管理员）。
      * <p>
      * 页面上那个"新密码"输入框留空就表示不改密码 —— 这是 {@code ValidGroup.Update}
      * 分组下密码不做必填校验换来的便利。留空时传过来的是空字符串，
      * 由 Service 层判断成"不修改"。
+     * <p>
+     * 注意地址栏里的 {@code id}（要改谁）和会话里的身份（谁在操作）是两回事：
+     * 改自己的资料时两者相同，管理员改别人的时候才不一样。
      */
     @PostMapping("/users/{id}")
     public String updateUser(@PathVariable("id") Integer id,
                              @ModelAttribute User user,
+                             HttpSession session,
                              RedirectAttributes flash) {
         user.setUserId(id);
+
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再修改用户资料");
+            return "redirect:/admin/users";
+        }
+
         try {
-            userService.update(user);
+            userService.update(user, me.getUserId());
             flash.addFlashAttribute("okMsg", "已保存用户 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());
@@ -647,11 +710,19 @@ public class AdminController {
         return "redirect:/admin/users";
     }
 
-    /** 删用户。该用户还写过文章时会被 Service 层拦下来 */
+    /** 删用户（本人或管理员）。该用户还写过文章时会被 Service 层拦下来 */
     @PostMapping("/users/{id}/delete")
-    public String deleteUser(@PathVariable("id") Integer id, RedirectAttributes flash) {
+    public String deleteUser(@PathVariable("id") Integer id,
+                             HttpSession session,
+                             RedirectAttributes flash) {
+        User me = currentUser(session);
+        if (me == null) {
+            flash.addFlashAttribute("errorMsg", "请先在右上角选择一个身份，再执行删除");
+            return "redirect:/admin/users";
+        }
+
         try {
-            userService.delete(id);
+            userService.delete(id, me.getUserId());
             flash.addFlashAttribute("okMsg", "已删除用户 #" + id);
         } catch (BusinessException e) {
             flash.addFlashAttribute("errorMsg", e.getMessage());

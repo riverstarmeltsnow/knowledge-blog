@@ -4,6 +4,7 @@ import cuit.mygit.common.ArchiveItem;
 import cuit.mygit.common.ArchiveMonth;
 import cuit.mygit.common.MarkdownRenderer;
 import cuit.mygit.common.PageResult;
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.ArticleTag;
 import cuit.mygit.entity.Tag;
@@ -37,7 +38,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -82,6 +86,20 @@ class ArticleServiceImplTest {
      */
     @Spy
     private MarkdownRenderer markdownRenderer = new MarkdownRenderer();
+
+    /**
+     * 权限校验器用<b>mock</b>，不用真的。
+     * <p>
+     * "谁能改谁的东西"这条规则本身由 {@code PermissionCheckerTest} 单独负责，
+     * 这里关心的是另一件事：Service 有没有<b>把正确的 ownerId 传下去</b>。
+     * 传错了（比如把自己的 ID 当成作者 ID）照样能过权限，
+     * 但结果是任何人都能改别人的文章 —— 那种错只有靠 {@code verify} 盯参数才照得出来。
+     * <p>
+     * 用真的反而测不准：真 checker 要先查一遍用户表才能判断角色，
+     * 每个用例都得额外铺 {@code userMapper} 的桩，而铺出来的桩又和规则本身纠缠在一起。
+     */
+    @Mock
+    private PermissionChecker permissionChecker;
 
     @InjectMocks
     private ArticleServiceImpl articleService;
@@ -396,7 +414,6 @@ class ArticleServiceImplTest {
     void update_keepsOldStatusWhenNotProvided() {
         Article old = buildDraft(1, 1);
         when(articleMapper.selectById(1)).thenReturn(old);
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("改过的标题");
@@ -413,7 +430,6 @@ class ArticleServiceImplTest {
     @DisplayName("修改文章：带了 status 就按带来的改（发布 or 转回草稿）")
     void update_changesStatusWhenProvided() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("改过的标题");
@@ -429,7 +445,6 @@ class ArticleServiceImplTest {
     @DisplayName("修改文章：status 不是 0 也不是 1 时拒绝，不写库")
     void update_invalidStatus() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("改过的标题");
@@ -492,7 +507,10 @@ class ArticleServiceImplTest {
     @DisplayName("修改文章：既不是作者也不是管理员时拒绝，且一个字都不写库")
     void update_notOwnerAndNotAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));       // 操作人 2 号是普通用户
+        // 让权限校验像真的一样拒掉 2 号。规则本身在 PermissionCheckerTest 里测，
+        // 这里只关心"拒了之后 Service 有没有真的停手"
+        doThrow(new BusinessException("没有权限修改这篇文章（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(2, 1, "修改这篇文章");
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("被篡改的标题");
@@ -510,7 +528,6 @@ class ArticleServiceImplTest {
     @DisplayName("修改文章：作者本人可以改")
     void update_byAuthor() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("改过的标题");
@@ -518,13 +535,14 @@ class ArticleServiceImplTest {
         articleService.update(edited, 1);
 
         verify(articleMapper).update(edited);
+        // 作者 ID 得是从库里查出来的 1（作者），不能是别的东西
+        verify(permissionChecker).checkOwnerOrAdmin(1, 1, "修改这篇文章");
     }
 
     @Test
     @DisplayName("修改文章：管理员可以改别人的文章")
     void update_byAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));       // 操作人 2 号是管理员
 
         Article edited = buildArticle(1, 1);
         edited.setTitle("管理员改的");
@@ -532,13 +550,14 @@ class ArticleServiceImplTest {
         articleService.update(edited, 2);
 
         verify(articleMapper).update(edited);
+        // 操作人 2、作者 1 —— 两个参数分得清，才说明"管理员能改别人的"走的确实是这条路
+        verify(permissionChecker).checkOwnerOrAdmin(2, 1, "修改这篇文章");
     }
 
     @Test
     @DisplayName("修改文章：请求体里塞别人的 userId 也没用，作者以库里原值为准")
     void update_cannotChangeAuthor() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 原作者是 1 号
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         Article edited = buildArticle(1, 999);  // 想把这篇"过继"给 999 号
         edited.setTitle("改过的标题");
@@ -571,7 +590,8 @@ class ArticleServiceImplTest {
     @DisplayName("删除文章：既不是作者也不是管理员时拒绝，且一条数据都不删")
     void delete_notOwnerAndNotAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));       // 操作人 2 号是普通用户
+        doThrow(new BusinessException("没有权限删除这篇文章（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(2, 1, "删除这篇文章");
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> articleService.delete(1, 2));
@@ -587,9 +607,10 @@ class ArticleServiceImplTest {
     @DisplayName("删除文章：作者本人可以删，且按'评论→标签关联→文章'的顺序级联删除")
     void delete_byAuthor_cascadesInOrder() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
 
         articleService.delete(1, 1);
+
+        verify(permissionChecker).checkOwnerOrAdmin(1, 1, "删除这篇文章");
 
         // 顺序很重要：comment 和 article_tag 都有指向 article 的外键，
         // 先删文章会触发"外键约束失败"，所以要验证调用顺序
@@ -603,11 +624,11 @@ class ArticleServiceImplTest {
     @DisplayName("删除文章：管理员可以删别人的文章")
     void delete_byAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));       // 操作人 2 号是管理员
 
         articleService.delete(1, 2);
 
         verify(articleMapper).deleteById(1);
+        verify(permissionChecker).checkOwnerOrAdmin(2, 1, "删除这篇文章");
     }
 
     @Test
@@ -625,6 +646,11 @@ class ArticleServiceImplTest {
     @DisplayName("删除文章：没传操作人ID时抛业务异常")
     void delete_noOperator() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        // 操作人为空时 checker 会抛"缺少操作人ID"。
+        // 一旦用了 isNull() 这种匹配器，同一个调用里的其它参数也都得用匹配器（eq），
+        // 不能混着写裸值 —— 混着写 Mockito 会直接报 InvalidUseOfMatchersException
+        doThrow(new BusinessException("缺少操作人ID"))
+                .when(permissionChecker).checkOwnerOrAdmin(isNull(), eq(1), eq("删除这篇文章"));
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> articleService.delete(1, null));
@@ -652,7 +678,6 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：同一个标签重复贴时拒绝")
     void addTag_duplicate() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(3)).thenReturn(new Tag());
         // 模拟"这条路已经贴过了"
         when(articleTagMapper.selectOne(any(ArticleTag.class)))
@@ -669,7 +694,6 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：标签不存在时拒绝")
     void addTag_tagNotExist() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(99)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -682,20 +706,21 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：一切正常时插入关联记录")
     void addTag_success() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(tagMapper.selectById(3)).thenReturn(new Tag());
         when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
 
         articleService.addTag(1, 3, 1);
 
         verify(articleTagMapper).insert(any(ArticleTag.class));
+        verify(permissionChecker).checkOwnerOrAdmin(1, 1, "修改这篇文章的标签");
     }
 
     @Test
     @DisplayName("贴标签：不是作者也不是管理员时拒绝（不能给别人文章乱贴标签）")
     void addTag_notOwnerAndNotAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));       // 操作人 2 号是普通用户
+        doThrow(new BusinessException("没有权限修改这篇文章的标签（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(2, 1, "修改这篇文章的标签");
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> articleService.addTag(1, 3, 2));
@@ -710,20 +735,19 @@ class ArticleServiceImplTest {
     @DisplayName("贴标签：管理员可以改别人文章的标签")
     void addTag_byAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));       // 管理员
         when(tagMapper.selectById(3)).thenReturn(new Tag());
         when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
 
         articleService.addTag(1, 3, 2);
 
         verify(articleTagMapper).insert(any(ArticleTag.class));
+        verify(permissionChecker).checkOwnerOrAdmin(2, 1, "修改这篇文章的标签");
     }
 
     @Test
     @DisplayName("取消标签：这篇没贴过该标签时拒绝")
     void removeTag_notExist() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
         when(articleTagMapper.selectOne(any(ArticleTag.class))).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -737,7 +761,8 @@ class ArticleServiceImplTest {
     @DisplayName("取消标签：不是作者也不是管理员时拒绝")
     void removeTag_notOwnerAndNotAdmin() {
         when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
-        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));
+        doThrow(new BusinessException("没有权限修改这篇文章的标签（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(2, 1, "修改这篇文章的标签");
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> articleService.removeTag(1, 3, 2));

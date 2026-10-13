@@ -1,5 +1,6 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.User;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -64,7 +66,11 @@ class UserServiceImplTest {
     @Mock
     private UserFollowMapper userFollowMapper;
 
-    /** 被测对象，Mockito 会把上面三个假对象注入进去 */
+    /** 权限规则由 PermissionCheckerTest 负责，这里只用它来控制"放行 / 拒绝" */
+    @Mock
+    private PermissionChecker permissionChecker;
+
+    /** 被测对象，上面那些假对象由 Mockito 注入进去 */
     @InjectMocks
     private UserServiceImpl userService;
 
@@ -185,6 +191,84 @@ class UserServiceImplTest {
         assertEquals("用户名或密码错误", ex.getMessage());
     }
 
+    // ==================== 修改（权限） ====================
+
+    /*
+     * 这一组是新加的：update 原先一个用例都没有。
+     *
+     * 它和删除的规则一样 —— 改自己的资料谁都可以，改别人的要管理员。
+     * 之所以要单独测，是因为"改自己的可以"这条放宽得挺关键：
+     * 收得太紧的话，普通用户想换个邮箱都得去找管理员。
+     */
+
+    @Test
+    @DisplayName("修改用户：本人可以改自己的资料，权限判断收到的是自己的 ID")
+    void update_bySelf() {
+        User old = buildUser(2, "zhangsan", 0);
+        old.setEmail("old@b.com");
+        when(userMapper.selectById(2)).thenReturn(old);
+
+        User edited = buildUser(2, "zhangsan", null);
+        edited.setEmail("new@b.com");
+
+        userService.update(edited, 2);
+
+        verify(userMapper).update(edited);
+        // 操作人和被改的人是同一个 —— 传两个 ID 是有意的，
+        // 它们不相等时走的才是"管理员改别人"那条路
+        verify(permissionChecker).checkOwnerOrAdmin(2, 2, "修改这个用户");
+        // 没传角色就沿用原来的，不能被清成 null
+        assertEquals(0, edited.getRole().intValue());
+    }
+
+    @Test
+    @DisplayName("修改用户：改别人的资料要管理员，普通用户被拒且一个字都不写库")
+    void update_notSelfAndNotAdmin() {
+        when(userMapper.selectById(4)).thenReturn(buildUser(4, "lisi", 0));
+        doThrow(new BusinessException("没有权限修改这个用户（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(3, 4, "修改这个用户");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.update(buildUser(4, "lisi", null), 3));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        verify(userMapper, never()).update(any(User.class));
+    }
+
+    @Test
+    @DisplayName("修改用户：本人也不能给自己升管理员，请求体里的 role 一律被丢掉")
+    void update_selfCannotPromoteToAdmin() {
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, "zhangsan", 0));
+        // isAdmin(2) 不单独打桩：mock 默认返回 false，正好就是"普通用户"
+
+        // 资料里塞一个 role:1，想借着"改自己"这条放宽把自己变成管理员
+        User edited = buildUser(2, "zhangsan", 1);
+
+        userService.update(edited, 2);
+
+        // "本人也能改"放宽的是资料和密码，不包括身份。
+        // 前端的角色下拉框确实只对管理员显示，但藏起来只是少让人白点一次，
+        // 直接发请求照样绕得过去 —— 所以这一刀必须切在服务端
+        assertEquals(0, edited.getRole().intValue());
+        verify(userMapper).update(edited);
+    }
+
+    @Test
+    @DisplayName("修改用户：管理员可以改角色（把别人提为管理员，或撤销）")
+    void update_adminCanChangeRole() {
+        when(userMapper.selectById(4)).thenReturn(buildUser(4, "lisi", 0));
+        when(permissionChecker.isAdmin(1)).thenReturn(true);
+
+        User edited = buildUser(4, "lisi", 1);   // 管理员把 lisi 提为管理员
+
+        userService.update(edited, 1);
+
+        // 管理员这一支要能真的改到，否则收紧就没法用了 ——
+        // 系统里再没有第二个能授予管理员权限的地方
+        assertEquals(1, edited.getRole().intValue());
+        verify(userMapper).update(edited);
+    }
+
     // ==================== 删除 ====================
 
     @Test
@@ -194,7 +278,7 @@ class UserServiceImplTest {
         when(articleMapper.countByUserId(1)).thenReturn(2);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> userService.delete(1));
+                () -> userService.delete(1, 1));
 
         assertTrue(ex.getMessage().contains("2 篇文章"));
         // 拒绝之后，评论、关注关系和用户都不能被删掉。
@@ -211,8 +295,9 @@ class UserServiceImplTest {
         when(userMapper.selectById(2)).thenReturn(buildUser(2, "zhangsan", 0));
         when(articleMapper.countByUserId(2)).thenReturn(0);
 
-        userService.delete(2);
+        userService.delete(2, 2);
 
+        verify(permissionChecker).checkOwnerOrAdmin(2, 2, "删除这个用户");
         verify(commentMapper).deleteByUserId(2);
         // user_follow 的两个字段都有指向 user 的外键，不清干净的话
         // 下一步删用户会被数据库拦下来。这里验证它确实被调到了
@@ -226,7 +311,7 @@ class UserServiceImplTest {
         when(userMapper.selectById(2)).thenReturn(buildUser(2, "zhangsan", 0));
         when(articleMapper.countByUserId(2)).thenReturn(0);
 
-        userService.delete(2);
+        userService.delete(2, 2);
 
         // 顺序错了就算两个方法都被调到，照样会报外键约束失败，
         // 所以这里用 InOrder 把先后关系也钉住
@@ -241,8 +326,26 @@ class UserServiceImplTest {
         when(userMapper.selectById(999)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> userService.delete(999));
+                () -> userService.delete(999, 1));
 
         assertTrue(ex.getMessage().contains("用户不存在"));
+    }
+
+    @Test
+    @DisplayName("删除用户：删别人的账号要管理员，被拒时评论和关注关系都一动不动")
+    void delete_notSelfAndNotAdmin() {
+        when(userMapper.selectById(4)).thenReturn(buildUser(4, "lisi", 0));
+        doThrow(new BusinessException("没有权限删除这个用户（只有作者本人和管理员可以操作）"))
+                .when(permissionChecker).checkOwnerOrAdmin(3, 4, "删除这个用户");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.delete(4, 3));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        // 删用户是级联操作，一旦漏了权限检查就找不回来了 ——
+        // 这三条 verify 盯的就是"拒绝之后有没有偷偷删东西"
+        verify(commentMapper, never()).deleteByUserId(anyInt());
+        verify(userFollowMapper, never()).deleteByUserId(anyInt());
+        verify(userMapper, never()).deleteById(anyInt());
     }
 }

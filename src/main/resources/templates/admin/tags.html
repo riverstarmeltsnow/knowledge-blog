@@ -15,19 +15,29 @@
 
 <nav th:replace="~{admin/layout :: nav('tags')}"></nav>
 
-<main class="adm-wrap">
+<!--
+  isAdmin 的用法和分类页一样：标签也是全站共用、没有主人的数据，
+  增删改只有管理员能做。真正的把关在后端 PermissionChecker.checkAdmin。
+-->
+<main class="adm-wrap" th:with="isAdmin=${session.currentUser != null and session.currentUser.role == 1}">
 
     <div th:replace="~{admin/layout :: flash}"></div>
 
     <!-- ==================== 新增 ==================== -->
-    <h1 class="adm-h1">新增标签</h1>
+    <h1 class="adm-h1" th:if="${isAdmin}">新增标签</h1>
 
-    <form method="post" th:action="@{/admin/tags}" th:object="${tag}" class="adm-inline-form">
+    <form method="post" th:action="@{/admin/tags}" th:object="${tag}"
+          class="adm-inline-form" th:if="${isAdmin}">
         <input class="adm-input" type="text" th:field="*{name}" placeholder="标签名，如「Java」">
         <button class="btn btn-primary btn-sm" type="submit">新增</button>
 
         <div class="adm-field-err" th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></div>
     </form>
+
+    <p class="adm-soft" th:unless="${isAdmin}">
+        标签和分类一样是全站共用的，只有管理员能新增、修改和删除。
+        给<b>自己的文章</b>贴标签不受影响 —— 那是在编辑文章，走的是另一套权限。
+    </p>
 
     <!-- ==================== 列表 ==================== -->
     <h1 class="adm-h1">全部标签</h1>
@@ -45,19 +55,21 @@
             <td class="adm-soft" th:text="${t.tagId}">1</td>
 
             <td>
-                <form method="post" class="adm-row-form"
+                <form method="post" class="adm-row-form" th:if="${isAdmin}"
                       th:action="@{/admin/tags/{id}(id=${t.tagId})}">
                     <input class="adm-input adm-input-sm adm-grow" type="text" name="name" th:value="${t.name}">
                     <button class="btn btn-sm" type="submit">保存</button>
                 </form>
+                <b th:unless="${isAdmin}" th:text="${t.name}">名称</b>
             </td>
 
             <td>
-                <form method="post"
+                <form method="post" th:if="${isAdmin}"
                       th:action="@{/admin/tags/{id}/delete(id=${t.tagId})}"
                       onsubmit="return confirm('确定删除这个标签吗？它和文章之间的关联也会一并清掉（文章本身不会删）。');">
                     <button class="btn btn-danger btn-sm" type="submit">删除</button>
                 </form>
+                <span class="adm-soft" th:unless="${isAdmin}">—</span>
             </td>
         </tr>
 

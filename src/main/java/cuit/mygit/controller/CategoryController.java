@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -22,6 +23,10 @@ import java.util.List;
  * <p>
  * 五个接口刚好对应"增删改查"四件事：add 增、delete 删、update 改、
  * list 和 getById 查。
+ * <p>
+ * <b>查的两个不用身份，写的三个都要</b>：分类是给所有访客看的公开数据，
+ * 浏览页要能随便读；而增删改会动到全站共用的字典表，只放行管理员，
+ * 所以那三个接口都要求带 {@code operatorId}。
  */
 @RestController
 @RequestMapping("/category")
@@ -53,15 +58,19 @@ public class CategoryController {
     /**
      * 新增分类。
      * <p>
-     * POST /category/add
+     * POST /category/add?operatorId=1
      * 请求体：{@code {"name":"学习笔记","description":"课程知识整理"}}
      * <p>
-     * 名称重复时会返回 {@code {"code":500,"msg":"分类名称已存在：学习笔记"}}。
+     * 名称重复时会返回 {@code {"code":500,"msg":"分类名称已存在：学习笔记"}}；
+     * 操作人不是管理员时返回 {@code 没有权限新增分类（只有管理员可以操作）}。
+     *
+     * @param operatorId 操作人ID（当前登录用户），必须是管理员
      */
     @PostMapping("/add")
     public Result<Category> add(
-            @Validated(ValidGroup.Create.class) @RequestBody Category category) {
-        return Result.success(categoryService.add(category));
+            @Validated(ValidGroup.Create.class) @RequestBody Category category,
+            @RequestParam("operatorId") Integer operatorId) {
+        return Result.success(categoryService.add(category, operatorId));
     }
 
     /**
@@ -75,21 +84,25 @@ public class CategoryController {
      */
     @PutMapping("/update")
     public Result<Void> update(
-            @Validated(ValidGroup.Update.class) @RequestBody Category category) {
-        categoryService.update(category);
+            @Validated(ValidGroup.Update.class) @RequestBody Category category,
+            @RequestParam("operatorId") Integer operatorId) {
+        categoryService.update(category, operatorId);
         return Result.success(null);
     }
 
     /**
      * 删除分类。
      * <p>
-     * DELETE /category/2
+     * DELETE /category/2?operatorId=1
      * <p>
      * 如果该分类下还有文章，会返回失败并提示先处理那些文章。
+     *
+     * @param operatorId 操作人ID（当前登录用户），必须是管理员
      */
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable("id") Integer id) {
-        categoryService.delete(id);
+    public Result<Void> delete(@PathVariable("id") Integer id,
+                               @RequestParam("operatorId") Integer operatorId) {
+        categoryService.delete(id, operatorId);
         return Result.success(null);
     }
 }

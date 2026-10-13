@@ -1,5 +1,6 @@
 package cuit.mygit.service.impl;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Tag;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleTagMapper;
@@ -24,6 +25,10 @@ public class TagServiceImpl implements TagService {
     @Autowired
     private ArticleTagMapper articleTagMapper;
 
+    /** 标签和分类一样没有主人，增删改一律只放行管理员 */
+    @Autowired
+    private PermissionChecker permissionChecker;
+
     @Override
     public List<Tag> listAll() {
         return tagMapper.selectAll();
@@ -39,7 +44,10 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
-    public Tag add(Tag tag) {
+    public Tag add(Tag tag, Integer operatorId) {
+        // 和分类同理：标签是全站共用的，只有管理员能新增
+        permissionChecker.checkAdmin(operatorId, "新增标签");
+
         if (tag == null || isBlank(tag.getName())) {
             throw new BusinessException("标签名称不能为空");
         }
@@ -51,7 +59,9 @@ public class TagServiceImpl implements TagService {
     }
 
     @Override
-    public void update(Tag tag) {
+    public void update(Tag tag, Integer operatorId) {
+        permissionChecker.checkAdmin(operatorId, "修改标签");
+
         if (tag == null || tag.getTagId() == null) {
             throw new BusinessException("缺少标签ID，无法修改");
         }
@@ -73,7 +83,9 @@ public class TagServiceImpl implements TagService {
 
     @Override
     @Transactional
-    public void delete(Integer tagId) {
+    public void delete(Integer tagId, Integer operatorId) {
+        permissionChecker.checkAdmin(operatorId, "删除标签");
+
         Tag tag = tagMapper.selectById(tagId);
         if (tag == null) {
             throw new BusinessException("标签不存在：" + tagId);

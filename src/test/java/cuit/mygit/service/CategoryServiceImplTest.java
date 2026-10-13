@@ -1,5 +1,6 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Category;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
@@ -20,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,9 +29,15 @@ import static org.mockito.Mockito.when;
 /**
  * CategoryService 的单元测试。
  * <p>
- * 分类这块两条核心规则：名字不能重复；分类底下还有文章时不能删。
+ * 分类这块三条核心规则：<b>只有管理员能增删改</b>；名字不能重复；
+ * 分类底下还有文章时不能删。
+ * <p>
  * 第二条尤其值得测 —— 它是替数据库外键"提前把关"，
  * 没有它的话用户看到的会是一串看不懂的 SQL 报错。
+ * <p>
+ * <b>权限那条规则本身不在这里测</b>：它已经抽到 {@link PermissionChecker}，
+ * 由 {@code PermissionCheckerTest} 统一负责。这里只验证两件事 ——
+ * 该拒绝的时候分类确实一个字都没写库，以及放行时该走的查重逻辑照常走。
  */
 @ExtendWith(MockitoExtension.class)
 class CategoryServiceImplTest {
@@ -39,6 +47,10 @@ class CategoryServiceImplTest {
 
     @Mock
     private ArticleMapper articleMapper;
+
+    /** 权限规则由 PermissionCheckerTest 负责，这里只用它来控制"放行 / 拒绝" */
+    @Mock
+    private PermissionChecker permissionChecker;
 
     @InjectMocks
     private CategoryServiceImpl categoryService;
@@ -73,7 +85,7 @@ class CategoryServiceImplTest {
             return 1;
         });
 
-        Category result = categoryService.add(category);
+        Category result = categoryService.add(category, 1);
 
         assertEquals(3, result.getCategoryId().intValue());
     }
@@ -82,7 +94,7 @@ class CategoryServiceImplTest {
     @DisplayName("新增分类：名称为空时拒绝")
     void add_blankName() {
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> categoryService.add(buildCategory(null, "  ")));
+                () -> categoryService.add(buildCategory(null, "  "), 1));
 
         assertTrue(ex.getMessage().contains("名称不能为空"));
         verify(categoryMapper, never()).insert(any(Category.class));
@@ -94,10 +106,26 @@ class CategoryServiceImplTest {
         when(categoryMapper.selectByName("学习笔记")).thenReturn(buildCategory(1, "学习笔记"));
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> categoryService.add(buildCategory(null, "学习笔记")));
+                () -> categoryService.add(buildCategory(null, "学习笔记"), 1));
 
         assertTrue(ex.getMessage().contains("已存在"));
         verify(categoryMapper, never()).insert(any(Category.class));
+    }
+
+    @Test
+    @DisplayName("新增分类：不是管理员时拒绝，且一条记录都不插")
+    void add_notAdmin() {
+        doThrow(new BusinessException("没有权限新增分类（只有管理员可以操作）"))
+                .when(permissionChecker).checkAdmin(2, "新增分类");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> categoryService.add(buildCategory(null, "读书笔记"), 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        // 权限没过就该原地停下 —— 连"这个名字有没有被占用"都不该去查，
+        // 否则这个接口就成了一个不用登录就能用的探针
+        verify(categoryMapper, never()).insert(any(Category.class));
+        verify(categoryMapper, never()).selectByName(any());
     }
 
     @Test
@@ -107,10 +135,25 @@ class CategoryServiceImplTest {
         when(articleMapper.countByCategoryId(1)).thenReturn(2);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> categoryService.delete(1));
+                () -> categoryService.delete(1, 1));
 
         // 提示里要说清楚有几篇，用户才知道该处理多少
         assertTrue(ex.getMessage().contains("2 篇文章"));
+        verify(categoryMapper, never()).deleteById(anyInt());
+    }
+
+    @Test
+    @DisplayName("删除分类：不是管理员时拒绝，而且比'分类不存在'先拦住")
+    void delete_notAdmin() {
+        doThrow(new BusinessException("没有权限删除分类（只有管理员可以操作）"))
+                .when(permissionChecker).checkAdmin(2, "删除分类");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> categoryService.delete(9, 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        // 权限判断排在查库之前，所以连 selectById 都不该发生
+        verify(categoryMapper, never()).selectById(anyInt());
         verify(categoryMapper, never()).deleteById(anyInt());
     }
 
@@ -120,7 +163,7 @@ class CategoryServiceImplTest {
         when(categoryMapper.selectById(3)).thenReturn(buildCategory(3, "空分类"));
         when(articleMapper.countByCategoryId(3)).thenReturn(0);
 
-        categoryService.delete(3);
+        categoryService.delete(3, 1);
 
         verify(categoryMapper).deleteById(3);
     }
@@ -131,7 +174,7 @@ class CategoryServiceImplTest {
         when(categoryMapper.selectById(999)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> categoryService.delete(999));
+                () -> categoryService.delete(999, 1));
 
         assertTrue(ex.getMessage().contains("分类不存在"));
     }
@@ -145,7 +188,7 @@ class CategoryServiceImplTest {
 
         Category toUpdate = buildCategory(1, "学习笔记");
         toUpdate.setDescription("新描述");
-        categoryService.update(toUpdate);
+        categoryService.update(toUpdate, 1);
 
         verify(categoryMapper).update(toUpdate);
         // 名字没变，就不该去查重
@@ -159,7 +202,7 @@ class CategoryServiceImplTest {
         when(categoryMapper.selectByName("踩坑记录")).thenReturn(buildCategory(2, "踩坑记录"));
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> categoryService.update(buildCategory(1, "踩坑记录")));
+                () -> categoryService.update(buildCategory(1, "踩坑记录"), 1));
 
         assertTrue(ex.getMessage().contains("已存在"));
         verify(categoryMapper, never()).update(any(Category.class));

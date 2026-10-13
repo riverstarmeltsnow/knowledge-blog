@@ -1,5 +1,6 @@
 package cuit.mygit.service.impl;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.User;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
@@ -37,6 +38,10 @@ public class UserServiceImpl implements UserService {
     /** 删用户时要连带清掉他和别人的关注关系 */
     @Autowired
     private UserFollowMapper userFollowMapper;
+
+    /** 改资料、删账号要判断"是不是本人或管理员" */
+    @Autowired
+    private PermissionChecker permissionChecker;
 
     @Override
     public List<User> listAll() {
@@ -111,7 +116,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public void update(User user) {
+    public void update(User user, Integer operatorId) {
         if (user == null || user.getUserId() == null) {
             throw new BusinessException("缺少用户ID，无法修改");
         }
@@ -121,6 +126,12 @@ public class UserServiceImpl implements UserService {
         if (old == null) {
             throw new BusinessException("用户不存在：" + user.getUserId());
         }
+
+        // 本人能改自己的资料和密码，改别人的要管理员。
+        // 校验放在"确认这个人存在"之后，和 ArticleServiceImpl.update 的顺序一致 ——
+        // 先分清"这条数据压根没有"和"这条数据你不能动"，
+        // 前者是 404 性质的问题，后者才是权限问题
+        permissionChecker.checkOwnerOrAdmin(operatorId, user.getUserId(), "修改这个用户");
 
         // ---------- 用户名：传了才改，改了要重新查重 ----------
         if (!isBlank(user.getUsername()) && !user.getUsername().equals(old.getUsername())) {
@@ -139,10 +150,17 @@ public class UserServiceImpl implements UserService {
             user.setPassword(old.getPassword());
         }
 
-        // 角色和邮箱同理，没传就用原来的值
-        if (user.getRole() == null) {
+        // ---------- 角色：不是管理员就一律沿用原值 ----------
+        // 上面那句"本人也能改"放宽的是**资料和密码**，不包括身份。
+        // 不拦这一步的话，普通用户在请求体里塞一个 role:1 就能把自己变成管理员
+        // —— 前端确实已经把角色下拉框藏起来了，但藏起来只是少让人白点一次，
+        // 直接发请求照样能绕过去。权限的边界必须在服务端。
+        // 顺带把"没传角色"也一并兜底了。
+        if (!permissionChecker.isAdmin(operatorId) || user.getRole() == null) {
             user.setRole(old.getRole());
         }
+
+        // 邮箱可以本人改，没传就用原来的值
         if (user.getEmail() == null) {
             user.setEmail(old.getEmail());
         }
@@ -152,11 +170,15 @@ public class UserServiceImpl implements UserService {
 
     @Override
     @Transactional
-    public void delete(Integer userId) {
+    public void delete(Integer userId, Integer operatorId) {
         User user = userMapper.selectById(userId);
         if (user == null) {
             throw new BusinessException("用户不存在：" + userId);
         }
+
+        // 能删自己的账号，删别人要管理员。
+        // 和上面的 update 一样，先确认这个人存在再谈权限
+        permissionChecker.checkOwnerOrAdmin(operatorId, userId, "删除这个用户");
 
         // 用户写的文章是博客的主要内容，不能因为删个用户就一起没了，
         // 所以这里直接拒绝，让用户先把文章处理掉。

@@ -95,7 +95,7 @@ public class UserController {
     /**
      * 修改用户资料。
      * <p>
-     * PUT /user/update
+     * PUT /user/update?operatorId=1
      * 请求体必须带 userId，例如：{@code {"userId":1,"email":"new@b.com"}}
      * <p>
      * 只传 email 也可以，其余字段会保留原值。
@@ -104,28 +104,39 @@ public class UserController {
      * 它们的"必填"只写在新增分组里。要是用 Create 分组，
      * 上面这个只改邮箱的请求就会被判成"用户名不能为空"直接拒绝，
      * 用户想改个邮箱还得把用户名密码重新填一遍。
+     * <p>
+     * {@code operatorId} 和 {@code userId} 是两个不同的东西，别搞混：
+     * 前者是"<b>谁在操作</b>"，后者是"<b>要改谁</b>"。大多数时候两者相同
+     * （改自己的资料），只有管理员改别人资料时才会不一样。
+     * 权限判断正是拿这两个值去比：相同就是本人，不同就得看 operatorId 是不是管理员。
      *
-     * @param user 要修改的用户
+     * @param user       要修改的用户
+     * @param operatorId 操作人ID（当前登录用户），必须是本人或管理员
      * @return 不带数据的成功结果
      */
     @PutMapping("/update")
     public Result<Void> update(
-            @Validated(ValidGroup.Update.class) @RequestBody User user) {
-        userService.update(user);
+            @Validated(ValidGroup.Update.class) @RequestBody User user,
+            @RequestParam("operatorId") Integer operatorId) {
+        userService.update(user, operatorId);
         return Result.success(null);
     }
 
     /**
      * 删除用户。
      * <p>
-     * DELETE /user/2
+     * DELETE /user/2?operatorId=1
+     * <p>
+     * 能删自己的账号（注销），删别人的要管理员。
      *
-     * @param id 用户ID
+     * @param id         用户ID
+     * @param operatorId 操作人ID（当前登录用户），必须是本人或管理员
      * @return 不带数据的成功结果
      */
     @DeleteMapping("/{id}")
-    public Result<Void> delete(@PathVariable("id") Integer id) {
-        userService.delete(id);
+    public Result<Void> delete(@PathVariable("id") Integer id,
+                               @RequestParam("operatorId") Integer operatorId) {
+        userService.delete(id, operatorId);
         return Result.success(null);
     }
 }

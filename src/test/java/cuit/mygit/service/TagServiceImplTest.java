@@ -1,5 +1,6 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.PermissionChecker;
 import cuit.mygit.entity.Tag;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleTagMapper;
@@ -18,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,6 +41,10 @@ class TagServiceImplTest {
     @Mock
     private ArticleTagMapper articleTagMapper;
 
+    /** 权限规则由 PermissionCheckerTest 负责，这里只用它来控制"放行 / 拒绝" */
+    @Mock
+    private PermissionChecker permissionChecker;
+
     @InjectMocks
     private TagServiceImpl tagService;
 
@@ -59,7 +65,7 @@ class TagServiceImplTest {
             return 1;
         });
 
-        Tag result = tagService.add(buildTag(null, "Redis"));
+        Tag result = tagService.add(buildTag(null, "Redis"), 1);
 
         assertEquals(4, result.getTagId().intValue());
     }
@@ -70,10 +76,24 @@ class TagServiceImplTest {
         when(tagMapper.selectByName("Java")).thenReturn(buildTag(1, "Java"));
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> tagService.add(buildTag(null, "Java")));
+                () -> tagService.add(buildTag(null, "Java"), 1));
 
         assertTrue(ex.getMessage().contains("已存在"));
         verify(tagMapper, never()).insert(any(Tag.class));
+    }
+
+    @Test
+    @DisplayName("新增标签：不是管理员时拒绝，且一条记录都不插")
+    void add_notAdmin() {
+        doThrow(new BusinessException("没有权限新增标签（只有管理员可以操作）"))
+                .when(permissionChecker).checkAdmin(2, "新增标签");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> tagService.add(buildTag(null, "Redis"), 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        verify(tagMapper, never()).insert(any(Tag.class));
+        verify(tagMapper, never()).selectByName(any());
     }
 
     @Test
@@ -81,7 +101,7 @@ class TagServiceImplTest {
     void delete_removesRelationsFirst() {
         when(tagMapper.selectById(3)).thenReturn(buildTag(3, "MySQL"));
 
-        tagService.delete(3);
+        tagService.delete(3, 1);
 
         // 如果先删标签，article_tag 里的外键会拦住，
         // 数据库直接报"外键约束失败"。所以顺序必须验证。
@@ -96,9 +116,25 @@ class TagServiceImplTest {
         when(tagMapper.selectById(999)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> tagService.delete(999));
+                () -> tagService.delete(999, 1));
 
         assertTrue(ex.getMessage().contains("标签不存在"));
+        verify(articleTagMapper, never()).deleteByTagId(anyInt());
+        verify(tagMapper, never()).deleteById(anyInt());
+    }
+
+    @Test
+    @DisplayName("删除标签：不是管理员时拒绝，且不去动关联表")
+    void delete_notAdmin() {
+        doThrow(new BusinessException("没有权限删除标签（只有管理员可以操作）"))
+                .when(permissionChecker).checkAdmin(2, "删除标签");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> tagService.delete(3, 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        // 这一步尤其要紧：权限没过时连 article_tag 都不能碰，
+        // 否则就是"没权限的人把别人的标签从文章上摘掉了"
         verify(articleTagMapper, never()).deleteByTagId(anyInt());
         verify(tagMapper, never()).deleteById(anyInt());
     }
