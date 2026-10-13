@@ -339,17 +339,26 @@ function categoryNameOf(categories, categoryId) {
  * @param {object} post 文章对象（不需要正文，列表页不显示正文）
  * @param {object[]} users 全部用户
  * @param {object[]} categories 全部分类
+ * @param {number[]} [followedIds] 当前用户关注了谁（一串用户ID）。
+ *        传了就在相应作者的卡片上多一个「已关注」小标；不传就没有。
+ *        做成可选参数是为了让"分类与标签"页不用改 —— 它不关心关注关系，
+ *        继续按三个参数调就行，卡片上自然不出现这个标。
  * @returns {string} HTML 片段
  */
-function articleCardHtml(post, users, categories) {
+function articleCardHtml(post, users, categories, followedIds) {
     const author = userNameOf(users, post.userId);
     const category = categoryNameOf(categories, post.categoryId);
+
+    // 「已关注」只在首页出现，靠传进来的关注列表判断。
+    // 注意 followedIds 可能是 undefined，所以先判它存不存在再调 includes。
+    const followed = followedIds && followedIds.includes(post.userId);
 
     return ''
         + '<a class="post-card" href="post.html?id=' + post.articleId + '">'
         +   '<h2 class="post-title">' + escapeHtml(post.title) + '</h2>'
         +   '<div class="post-meta">'
         +     '<span class="meta-item">' + escapeHtml(author) + '</span>'
+        +     (followed ? '<span class="follow-chip">已关注</span>' : '')
         +     (category ? '<span class="cat-chip">' + escapeHtml(category) + '</span>' : '')
         +     '<span class="meta-item">' + formatTime(post.createTime) + '</span>'
         +     '<span class="meta-item">' + (post.viewCount || 0) + ' 次浏览</span>'
@@ -363,10 +372,11 @@ function articleCardHtml(post, users, categories) {
  * @param {object[]} posts
  * @param {object[]} users
  * @param {object[]} categories
+ * @param {number[]} [followedIds] 当前用户关注了谁，见 articleCardHtml
  */
-function articleListHtml(posts, users, categories) {
+function articleListHtml(posts, users, categories, followedIds) {
     return '<div class="post-list">'
-        + posts.map(post => articleCardHtml(post, users, categories)).join('')
+        + posts.map(post => articleCardHtml(post, users, categories, followedIds)).join('')
         + '</div>';
 }
 

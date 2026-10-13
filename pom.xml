@@ -74,6 +74,26 @@
             <artifactId>spring-boot-starter-thymeleaf</artifactId>
         </dependency>
 
+        <!-- commonmark-java：把 Markdown 渲染成 HTML。
+             它是 CommonMark 规范的 Java 实现 —— 和 GitHub、Stack Overflow
+             用的是同一套语法规范，所以写法上跟它们对得上。
+
+             为什么在**服务端**渲染，而不是引一个 marked.js 到前端？见
+             cuit.mygit.common.MarkdownRenderer 里的说明。 -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+            <version>0.24.0</version>
+        </dependency>
+
+        <!-- CommonMark 核心规范里没有表格（表格是 GitHub 自己扩的 GFM 的一部分），
+             所以要单独引这个扩展才能认 | 表头 | 这种写法 -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <version>0.24.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>

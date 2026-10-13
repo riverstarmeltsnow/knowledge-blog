@@ -242,8 +242,13 @@ public class AdminController {
      * 是详情接口本身的设计（见 {@code ArticleController#getById} 的说明）。
      */
     @GetMapping("/articles/{id}/edit")
-    public String editArticleForm(@PathVariable("id") Integer id, Model model) {
-        model.addAttribute("article", articleService.getById(id));
+    public String editArticleForm(@PathVariable("id") Integer id, Model model,
+                                  HttpSession session) {
+        // 详情接口现在要知道"你是谁"：草稿只有作者本人和管理员能打开。
+        // 没选身份就传 null，当成游客 —— 已发布的文章照样编辑，草稿会提示不存在
+        User me = currentUser(session);
+        model.addAttribute("article",
+                articleService.getById(id, me == null ? null : me.getUserId()));
         model.addAttribute("allCategories", categoryService.listAll());
         model.addAttribute("allTags", tagService.listAll());
         model.addAttribute("tagIds", articleService.listTags(id).stream()
@@ -332,8 +337,16 @@ public class AdminController {
             return backToArticleForm(model, binding.getErrorCount());
         }
 
+        // 改文章要判权限（只有作者本人或管理员能改），所以得先知道"你是谁"。
+        // 没选身份的话连操作人都没有，没法往下传 —— 和删除那边一个道理
+        User me = currentUser(session);
+        if (me == null) {
+            model.addAttribute("errorMsg", "请先在右上角选择一个身份，再修改文章");
+            return backToArticleForm(model, 0);
+        }
+
         try {
-            articleService.update(article);
+            articleService.update(article, me.getUserId());
         } catch (BusinessException e) {
             model.addAttribute("errorMsg", e.getMessage());
             return backToArticleForm(model, 0);

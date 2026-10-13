@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cuit.mygit.mapper.UserFollowMapper">
+
+    <!--
+        查一条关注关系。
+        两个条件都要写：follower_id 和 followee_id 合起来才是联合主键，
+        少写一个意思就变成"这个人关注过的所有人"，用来判断重复关注就错了。
+    -->
+    <select id="selectOne" resultType="UserFollow">
+        SELECT follower_id,
+               followee_id,
+               create_time
+        FROM user_follow
+        WHERE follower_id = #{followerId}
+          AND followee_id = #{followeeId}
+    </select>
+
+    <!--
+        建立关注关系。
+        不写 create_time，让数据库的 DEFAULT CURRENT_TIMESTAMP 自己填 ——
+        "什么时候关注的"应该以数据库的时间为准，而不是应用服务器的时间，
+        否则多台机器部署时会出现时间先后错乱。
+    -->
+    <insert id="insert" parameterType="UserFollow">
+        INSERT INTO user_follow (follower_id, followee_id)
+        VALUES (#{followerId}, #{followeeId})
+    </insert>
+
+    <!--
+        取消关注，只删指定的那一条。
+        和 ArticleTagMapper.delete 一样，两个条件都必须在，
+        少写 followee_id 会把这个人关注的所有人一次性取关。
+    -->
+    <delete id="delete">
+        DELETE FROM user_follow
+        WHERE follower_id = #{followerId}
+          AND followee_id = #{followeeId}
+    </delete>
+
+    <!--
+        删用户时清场，两个方向一起清。
+        这条和别的 delete 不一样：用的是 OR 而不是 AND。
+        因为"我关注了别人"和"别人关注了我"分别存在两行里，
+        AND 一个都匹配不到。
+
+        写成一条 SQL 而不是分两次调用，是因为这就是一个语义动作：
+        "把这个用户从关注关系网里摘掉"。拆成两条也没什么不好，
+        但一条更直白，也更少一次往返。
+    -->
+    <delete id="deleteByUserId">
+        DELETE FROM user_follow
+        WHERE follower_id = #{userId}
+           OR followee_id = #{userId}
+    </delete>
+
+    <!--
+        查"我关注了谁"，只要对方的用户ID。
+        resultType 写 int（不是实体类）—— 查出来的每一行就是一个数字。
+
+        ORDER BY create_time DESC 让最近关注的排前面，这个顺序前端现在
+        用不上（前端只是拿这串ID做"在不在里面"的判断），但它是有意的：
+        以后要做"我的关注"列表，默认就是这个顺序。
+
+        第二个排序条件 followee_id DESC 是必需的，不是凑数 ——
+        create_time 精确到秒，而导入种子数据时几十条记录在同一秒插入，
+        光按 create_time 排的话先后是不确定的，同一份数据两次查询
+        可能给出不同的顺序，测试就会莫名其妙地飘。
+    -->
+    <select id="selectFollowingIds" resultType="int">
+        SELECT followee_id
+        FROM user_follow
+        WHERE follower_id = #{userId}
+        ORDER BY create_time DESC, followee_id DESC
+    </select>
+
+</mapper>

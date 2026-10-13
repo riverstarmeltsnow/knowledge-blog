@@ -54,12 +54,13 @@ TREE = {
                     {'name': 'mapper/', 'kind': 'pkg', 'note': '数据访问层：与数据库交互', 'children': [
                         {'name': 'ArticleMapper.java', 'kind': 'file'},
                     ]},
-                    {'name': 'entity/', 'kind': 'pkg', 'note': '实体类：对应 5 张业务表', 'children': [
+                    {'name': 'entity/', 'kind': 'pkg', 'note': '实体类：对应 7 张数据表', 'children': [
                         {'name': 'User.java', 'kind': 'file'},
                         {'name': 'Article.java', 'kind': 'file'},
                         {'name': 'Category.java', 'kind': 'file'},
                         {'name': 'Tag.java', 'kind': 'file'},
                         {'name': 'Comment.java', 'kind': 'file'},
+                        {'name': 'UserFollow.java', 'kind': 'file'},
                     ]},
                 ]},
                 {'name': 'resources/', 'kind': 'dir', 'children': [

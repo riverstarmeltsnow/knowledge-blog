@@ -16,6 +16,7 @@
         <nav class="nav-links">
             <a class="nav-link active" href="index.html">首页</a>
             <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="archive.html">归档</a>
             <a class="nav-link" href="manage.html">管理</a>
         </nav>
 
@@ -38,6 +39,10 @@
         <p class="page-sub" id="pageSub"></p>
     </div>
 
+    <!-- 三个档位的切换条。内容由 renderTabs() 填，
+         复用后台管理页那套 .admin-tabs 样式，不另外写一份 -->
+    <div class="admin-tabs" id="feedTabs"></div>
+
     <div id="listArea">
         <div class="loading">正在加载…</div>
     </div>
@@ -50,37 +55,72 @@
     /**
      * 首页 —— 文章列表 + 搜索 + 翻页。
      *
-     * 这一页有两种状态，靠 URL 上有没有 keyword 参数区分：
-     *   普通状态：分页拉 /article/page，显示页码条
-     *   搜索状态：调 /article/search 一次拿全，不显示页码条
+     * 这一页有三种状态，靠 URL 参数区分：
+     *   搜索状态：有 keyword 参数，调 /article/search 一次拿全，不显示页码条
+     *   普通状态：有（或没有）sort 参数，分页拉一页，显示页码条
+     *     sort = latest（默认）→ /article/page       最新
+     *     sort = hot           → /article/hot        热门
+     *     sort = recommend     → /article/recommend  推荐
      *
-     * 搜索用 URL 参数而不是存在 JS 变量里，是为了刷新页面结果还在，
-     * 也能把搜索结果的链接直接发给别人。
+     * 三种状态都记在 URL 上而不是 JS 变量里，是为了刷新页面还在原处，
+     * 也能把链接直接发给别人。切换档位就是改地址栏（location.href），
+     * 和「分类与标签」页挑分类用的是同一招。
      */
 
     /** 每页显示几篇 */
     const PAGE_SIZE = 8;
 
+    /** 三个档位。写成一个对象是为了让标题、副标题、空状态文案都放一处，
+     *  不用在下面的分支里散落一堆 if */
+    const FEEDS = {
+        latest: {
+            name: '最新',
+            title: '最新文章',
+            emptyText: '这里还空着',
+            emptyHint: '去「管理」页面写下第一篇吧'
+        },
+        hot: {
+            name: '热门',
+            title: '热门文章',
+            emptyText: '还没有人发表文章',
+            emptyHint: '等有人写了文章，这里会按浏览量从高到低排出来'
+        },
+        recommend: {
+            name: '推荐',
+            title: '推荐关注',
+            emptyText: '还没有关注任何人',
+            emptyHint: '在文章详情页点作者名字旁边的「关注」，这里就会出现他的文章'
+        }
+    };
+
     /** 这一页要用到的数据 */
     const state = {
         page: 1,          // 当前第几页
+        sort: 'latest',   // 当前是哪个档位：latest / hot / recommend
         keyword: '',      // 搜索关键字，空字符串表示不是搜索状态
         users: [],        // 全部用户，用来把 userId 显示成用户名
-        categories: []    // 全部分类，用来把 categoryId 显示成分类名
+        categories: [],   // 全部分类，用来把 categoryId 显示成分类名
+        followedIds: []   // 我关注了谁（一串用户ID），用来给卡片打「已关注」标
     };
 
     // ==================== 启动 ====================
 
     async function init() {
-        // 从地址栏读搜索关键字
+        // 从地址栏读状态
         const params = new URLSearchParams(location.search);
         state.keyword = params.get('keyword') || '';
+
+        // 档位只认三个已知值，其它的（比如手打 ?sort=xxx）一律当"最新"。
+        // 不校验的话，会拿着一个后端不认识的值去拼 URL，报一堆看不懂的错
+        const sort = params.get('sort');
+        state.sort = FEEDS[sort] ? sort : 'latest';
+
         if (state.keyword) {
             $('#searchInput').value = state.keyword;
         }
 
         try {
-            // 这两个请求互不依赖，用 Promise.all 一起发，比一个个等快
+            // 这三个请求互不依赖，用 Promise.all 一起发，比一个个等快
             const [users, categories] = await Promise.all([
                 get('/user/list'),
                 get('/category/list')
@@ -95,7 +135,60 @@
         renderLoginState('#who');
         initSearchBox();
 
+        // 关注列表要单独请求 —— 它只在登录之后才有意义。
+        // 没登录时不发这个请求，state.followedIds 保持空数组，
+        // 卡片上自然就不会出现「已关注」。
+        const me = getMe();
+        if (me) {
+            try {
+                state.followedIds = await get('/follow/following/' + me.userId);
+            } catch (e) {
+                // 拿不到关注列表不算致命 —— 页面照样能看，
+                // 只是卡片上少个标记，所以这里不打断整个初始化
+                state.followedIds = [];
+            }
+        }
+
+        renderTabs();
         await loadPosts();
+    }
+
+    // ==================== 档位切换条 ====================
+
+    /**
+     * 画「热门 / 最新 / 推荐」三个标签。
+     *
+     * 搜索状态下不显示 —— 搜索结果和这三个档位是两回事，
+     * 摆在搜索结果上面会让人以为换档位能筛搜索结果，其实不能。
+     */
+    function renderTabs() {
+        const box = $('#feedTabs');
+
+        if (state.keyword) {
+            box.innerHTML = '';
+            return;
+        }
+
+        box.innerHTML = ['hot', 'latest', 'recommend'].map(key =>
+            '<button class="admin-tab' + (state.sort === key ? ' active' : '') + '"'
+            + ' type="button" onclick="pickSort(\'' + key + '\')">'
+            + FEEDS[key].name + '</button>'
+        ).join('');
+    }
+
+    /**
+     * 切到某个档位。
+     *
+     * 走"改地址栏"而不是直接改 state 再重画，是因为这样刷新之后
+     * 还停在同一个档位，链接也能直接分享。"最新"是默认档，
+     * URL 上不带 sort 参数，地址干净一点。
+     *
+     * 写在全局是为了让标签按钮的 onclick 能调到。
+     *
+     * @param {string} sort 'latest' / 'hot' / 'recommend'
+     */
+    function pickSort(sort) {
+        location.href = 'index.html' + (sort === 'latest' ? '' : '?sort=' + sort);
     }
 
     // ==================== 加载文章列表 ====================
@@ -127,7 +220,7 @@
             area.innerHTML = emptyHtml('没有找到包含这个关键字的文章',
                 '试试换个词，或者点下面的按钮看全部文章');
         } else {
-            area.innerHTML = articleListHtml(posts, state.users, state.categories);
+            area.innerHTML = articleListHtml(posts, state.users, state.categories, state.followedIds);
         }
 
         // 搜索不分页，只给一个"回到全部"的出口
@@ -135,26 +228,81 @@
             '<button class="pager-btn" onclick="backToAll()">← 返回全部文章</button>';
     }
 
-    /** 普通状态：按页码拉一页 */
+    /** 普通状态：按当前档位拉一页 */
     async function loadPagedPosts(area) {
-        const result = await get(withQuery('/article/page', {
+        const feed = FEEDS[state.sort];
+
+        // 「推荐」的两个特殊情况和"热门/最新"不一样，先处理掉
+        const shortcut = recommendShortcut(feed, area);
+        if (shortcut) {
+            return;
+        }
+
+        const result = await get(withQuery(apiPathOf(), {
             page: state.page,
-            size: PAGE_SIZE
+            size: PAGE_SIZE,
+            // 只有推荐流需要带上"我是谁"。其余两个接口没有这个参数，
+            // withQuery 会把值为 undefined 的项直接跳过，所以这里统一写上没事
+            followerId: state.sort === 'recommend' ? getMe().userId : undefined
         }));
 
-        $('#pageTitle').textContent = '最新文章';
-        $('#pageSub').textContent = result.total > 0
-            ? '共 ' + result.total + ' 篇文章'
-            : '还没有人发表文章';
+        $('#pageTitle').textContent = feed.title;
+
+        // 一篇都没有时副标题留空 —— 空状态那块已经说清楚"为什么空、接下来干嘛"了，
+        // 上面再挂一句"共 0 篇文章"是废话
+        $('#pageSub').textContent = result.total > 0 ? '共 ' + result.total + ' 篇文章' : '';
 
         if (!result.list.length) {
-            area.innerHTML = emptyHtml('这里还空着', '去「管理」页面写下第一篇吧');
+            area.innerHTML = emptyHtml(feed.emptyText, feed.emptyHint);
             $('#pager').innerHTML = '';
             return;
         }
 
-        area.innerHTML = articleListHtml(result.list, state.users, state.categories);
+        area.innerHTML = articleListHtml(result.list, state.users, state.categories, state.followedIds);
         renderPager(result.page, result.totalPages);
+    }
+
+    /** 当前档位该调哪个接口 */
+    function apiPathOf() {
+        if (state.sort === 'hot') {
+            return '/article/hot';
+        }
+        if (state.sort === 'recommend') {
+            return '/article/recommend';
+        }
+        return '/article/page';
+    }
+
+    /**
+     * 「推荐」档位下不发请求就能定的两种情况。
+     *
+     * 这两种都**不能**靠"请求失败了再显示错误"来处理 ——
+     * 它们不是错误，是正常状态，只是需要一段引导告诉用户下一步干嘛。
+     *
+     * @returns {boolean} true 表示已经画完了，调用方不要再发请求
+     */
+    function recommendShortcut(feed, area) {
+        if (state.sort !== 'recommend') {
+            return false;
+        }
+
+        $('#pageTitle').textContent = feed.title;
+        $('#pager').innerHTML = '';
+
+        // 情况一：没登录。后端也会拒绝（推荐流必须知道"我是谁"），
+        // 但让前端先拦一道，用户就不用先看到一个报错再被引导去登录
+        if (!getMe()) {
+            $('#pageSub').textContent = '';
+            area.innerHTML = emptyHtml('登录后可以看推荐',
+                '关注感兴趣的博主，他们的新文章会出现在这里。', '🔑');
+            return true;
+        }
+
+        // 情况二：登录了，但一篇文章都没有。
+        // 这里没有提前调 count，而是等下面正常请求回来之后看 total ——
+        // 因为空的原因有两种（没关注人 / 关注的人还没写），
+        // 文案要能同时说清楚，没必要为了区分它们多发一次请求
+        return false;
     }
 
     // ==================== 渲染 ====================

@@ -4,11 +4,13 @@ import cuit.mygit.entity.User;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
 import cuit.mygit.mapper.CommentMapper;
+import cuit.mygit.mapper.UserFollowMapper;
 import cuit.mygit.mapper.UserMapper;
 import cuit.mygit.service.impl.UserServiceImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,6 +59,10 @@ class UserServiceImplTest {
     /** 假的评论表访问接口（删用户时要连带删评论） */
     @Mock
     private CommentMapper commentMapper;
+
+    /** 假的关注关系表访问接口（删用户时要连带清关注关系） */
+    @Mock
+    private UserFollowMapper userFollowMapper;
 
     /** 被测对象，Mockito 会把上面三个假对象注入进去 */
     @InjectMocks
@@ -181,7 +188,7 @@ class UserServiceImplTest {
     // ==================== 删除 ====================
 
     @Test
-    @DisplayName("删除用户：该用户还有文章时拒绝删除，也不删评论")
+    @DisplayName("删除用户：该用户还有文章时拒绝删除，也不删评论和关注关系")
     void delete_userHasArticles() {
         when(userMapper.selectById(1)).thenReturn(buildUser(1, "hexin", 1));
         when(articleMapper.countByUserId(1)).thenReturn(2);
@@ -190,13 +197,16 @@ class UserServiceImplTest {
                 () -> userService.delete(1));
 
         assertTrue(ex.getMessage().contains("2 篇文章"));
-        // 拒绝之后，评论和用户都不能被删掉
+        // 拒绝之后，评论、关注关系和用户都不能被删掉。
+        // 这几条 verify 是在盯着"提前 return 之前有没有偷偷删东西"——
+        // 删除是有副作用的操作，一旦漏了检查就找不回来了
         verify(commentMapper, never()).deleteByUserId(anyInt());
+        verify(userFollowMapper, never()).deleteByUserId(anyInt());
         verify(userMapper, never()).deleteById(anyInt());
     }
 
     @Test
-    @DisplayName("删除用户：没有文章时连带删掉他的评论，再删用户")
+    @DisplayName("删除用户：没有文章时连带删掉他的评论和关注关系，再删用户")
     void delete_success() {
         when(userMapper.selectById(2)).thenReturn(buildUser(2, "zhangsan", 0));
         when(articleMapper.countByUserId(2)).thenReturn(0);
@@ -204,7 +214,25 @@ class UserServiceImplTest {
         userService.delete(2);
 
         verify(commentMapper).deleteByUserId(2);
+        // user_follow 的两个字段都有指向 user 的外键，不清干净的话
+        // 下一步删用户会被数据库拦下来。这里验证它确实被调到了
+        verify(userFollowMapper).deleteByUserId(2);
         verify(userMapper).deleteById(2);
+    }
+
+    @Test
+    @DisplayName("删除用户：清关注关系必须发生在他被删掉之前")
+    void delete_clearsFollowBeforeUser() {
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, "zhangsan", 0));
+        when(articleMapper.countByUserId(2)).thenReturn(0);
+
+        userService.delete(2);
+
+        // 顺序错了就算两个方法都被调到，照样会报外键约束失败，
+        // 所以这里用 InOrder 把先后关系也钉住
+        InOrder order = inOrder(userFollowMapper, userMapper);
+        order.verify(userFollowMapper).deleteByUserId(2);
+        order.verify(userMapper).deleteById(2);
     }
 
     @Test

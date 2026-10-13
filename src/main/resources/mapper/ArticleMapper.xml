@@ -18,10 +18,12 @@
                title,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
         FROM article
+        WHERE status = 1
         ORDER BY create_time DESC
     </select>
 
@@ -36,6 +38,7 @@
                content,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
@@ -49,8 +52,8 @@
         create_time / update_time 也交给数据库的默认值。
     -->
     <insert id="insert" parameterType="Article" useGeneratedKeys="true" keyProperty="articleId">
-        INSERT INTO article (title, content, user_id, category_id)
-        VALUES (#{title}, #{content}, #{userId}, #{categoryId})
+        INSERT INTO article (title, content, user_id, category_id, status)
+        VALUES (#{title}, #{content}, #{userId}, #{categoryId}, #{status})
     </insert>
 
     <!--
@@ -63,7 +66,8 @@
         UPDATE article
         SET title       = #{title},
             content     = #{content},
-            category_id = #{categoryId}
+            category_id = #{categoryId},
+            status      = #{status}
         WHERE article_id = #{articleId}
     </update>
 
@@ -107,11 +111,13 @@
                title,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
         FROM article
         WHERE user_id = #{userId}
+          AND status = 1
         ORDER BY create_time DESC
     </select>
 
@@ -121,11 +127,13 @@
                title,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
         FROM article
         WHERE category_id = #{categoryId}
+          AND status = 1
         ORDER BY create_time DESC
     </select>
 
@@ -143,12 +151,14 @@
                a.title,
                a.user_id,
                a.category_id,
+               a.status,
                a.view_count,
                a.create_time,
                a.update_time
         FROM article a
                  INNER JOIN article_tag atg ON a.article_id = atg.article_id
         WHERE atg.tag_id = #{tagId}
+          AND a.status = 1
         ORDER BY a.create_time DESC
     </select>
 
@@ -169,11 +179,13 @@
                title,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
         FROM article
         WHERE title LIKE CONCAT('%', #{keyword}, '%')
+          AND status = 1
         ORDER BY create_time DESC
     </select>
 
@@ -195,12 +207,133 @@
                title,
                user_id,
                category_id,
+               status,
                view_count,
                create_time,
                update_time
         FROM article
+        WHERE status = 1
         ORDER BY create_time DESC
         LIMIT #{offset}, #{size}
+    </select>
+
+    <!--
+        热门文章：按浏览量从高到低排。
+
+        和上面的 selectPage 只有 ORDER BY 不一样 —— 既然只差一句，
+        为什么不合并成一个方法、加个 sort 参数？
+        因为那样就得在 XML 里用 <choose> 拼 ORDER BY，而 ORDER BY 后面的
+        是**列名**，不是值，没法用 #{} 占位（用了会变成按字符串常量排序，
+        MySQL 直接报错或者给出无意义的结果）。只能拼字符串，
+        而"用用户传的值拼 SQL"正是注入的经典入口，需要额外写白名单校验。
+        两条 SQL 各自独立，反而更简单也更安全。
+
+        浏览量相同的时候按 article_id 倒序 —— 这个第二排序条件不能省。
+        它的作用是让结果**确定**：同一批数据查两次顺序必须一样，
+        否则分页会出问题（第 1 页和第 2 页可能漏掉或重复某些文章），
+        测试也会时好时坏。
+
+        为什么 tie-break 用 article_id 而不是 create_time：
+        create_time 在表里是允许为 NULL 的，MySQL 对 NULL 的排序规则
+        和普通值不一样（NULL 全排在最前面），拿它当 tie-break 等于
+        又引入一个不确定因素。article_id 是主键，永远有值且唯一。
+    -->
+    <select id="selectHotPage" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               status,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        WHERE status = 1
+        ORDER BY view_count DESC, article_id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <!--
+        推荐流：只查"我关注的人"写的已发布文章。
+
+        用 INNER JOIN 连 user_follow，而不是先查关注列表再用 IN 拼进 SQL。
+        后者要发两次请求，而且关注列表长的时候 IN (...) 里会塞几百个 ID。
+        JOIN 让数据库一次算完，还能顺利用上 user_follow 的主键索引。
+
+        关联条件是 a.user_id = uf.followee_id（作者 = 我关注的人），
+        过滤条件是 uf.follower_id = #{followerId}（这些关系必须是我发起的）。
+        两个条件都不能少：只写前者会把"别人关注了谁"也算进来。
+
+        因为 user_follow 是 (follower_id, followee_id) 联合主键，
+        同一个作者不可能被我关注两次，所以 JOIN 出来不会重复，
+        不需要加 DISTINCT（DISTINCT 会额外排序，白白变慢）。
+
+        排序用 create_time DESC —— 推荐流看的是"新鲜度"，
+        关注的人发了新文章就该出现在最上面，和热门是两种不同的诉求。
+    -->
+    <select id="selectRecommendedByFollowerId" resultType="Article">
+        SELECT a.article_id,
+               a.title,
+               a.user_id,
+               a.category_id,
+               a.status,
+               a.view_count,
+               a.create_time,
+               a.update_time
+        FROM article a
+                 INNER JOIN user_follow uf ON a.user_id = uf.followee_id
+        WHERE uf.follower_id = #{followerId}
+          AND a.status = 1
+        ORDER BY a.create_time DESC, a.article_id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <!--
+        推荐流的总条数，给分页算总页数用。
+        JOIN 和过滤条件必须和上面的查询**完全一致**，
+        否则会出现"总数说有 3 页，翻到第 3 页却是空的"。
+    -->
+    <select id="countByFollowerId" resultType="long">
+        SELECT COUNT(*)
+        FROM article a
+                 INNER JOIN user_follow uf ON a.user_id = uf.followee_id
+        WHERE uf.follower_id = #{followerId}
+          AND a.status = 1
+    </select>
+
+    <!--
+        管理页专用：查"这个人有权管理"的文章，草稿也在内。
+
+        两条分支的区别就在草稿：
+            管理员（includeAllDrafts = true）→ 不加任何条件，谁的草稿都看得见
+            普通人                          → 已发布的 + 自己的草稿
+
+        为什么不写成"全都查出来、在前端按 author 过滤掉别人的草稿"？
+        因为那样别人的草稿标题、ID、数量都已经随 JSON 发到浏览器里了，
+        按 F12 就能看个干净。**权限过滤必须发生在 SQL 这一层**，
+        发不出去的数据才是真的看不见。
+
+        <where> 标签会自动处理开头的 AND/OR，也能在没有任何条件时
+        自己消失 —— 不过这里两条分支都必有一个条件，所以它主要是
+        让 SQL 读起来干净。
+    -->
+    <select id="selectForManage" resultType="Article">
+        SELECT article_id,
+               title,
+               user_id,
+               category_id,
+               status,
+               view_count,
+               create_time,
+               update_time
+        FROM article
+        <where>
+            <choose>
+                <when test="includeAllDrafts">1 = 1</when>
+                <otherwise>status = 1 OR user_id = #{operatorId}</otherwise>
+            </choose>
+        </where>
+        ORDER BY create_time DESC
     </select>
 
     <!--
@@ -212,6 +345,55 @@
     <select id="countAll" resultType="long">
         SELECT COUNT(*)
         FROM article
+        WHERE status = 1
+    </select>
+
+    <!--
+        归档页专用：已发布文章的"月份 + 摘要"，供前端按年月排布。
+
+        月份这一列在表里没有，是 DATE_FORMAT 现算的 ——
+        create_time 是 DATETIME（精确到秒），归档只需要看到"哪一年哪一月"，
+        让数据库把格式化成 '2026-03' 这样的字符串，Java 那边就能直接当
+        分组的键用，省得再把 LocalDateTime 转来转去。
+
+        这里只做"算出月份"，没有 GROUP BY。原因是我们不只想要每个月有几篇，
+        还要把文章本身列出来，一条 SQL 同时解决两件事；
+        分组交给 Service 层，因为它拿到的已经是有序数据，一次遍历就分完了。
+        GROUP BY 在这里反而要配合 GROUP_CONCAT 才能把标题拼出来，
+        那是条更难读、也更难维护的路。
+
+        WHERE status = 1：草稿不进归档页，和首页、分类页保持一致。
+
+        再加一条 create_time IS NOT NULL 是防着意外情况的，不是常规过滤。
+        建表时 create_time 是 DATETIME DEFAULT CURRENT_TIMESTAMP，写了默认值
+        但**没写 NOT NULL**，所以理论上存在一条"时间为空"的记录。
+        真出现这种记录时 DATE_FORMAT 会返回 NULL，那 month 就是个 null，
+        前端拿它去 slice(0,4) 取年份会当场报错，整页白屏。
+
+        与其在前端到处判空，不如在这里挡掉：归档本来就是"按时间排布"，
+        一篇没有时间的文章压根没法往时间线上放，不收它比收进来再补救更合理
+        （它在首页、分类页照样看得见，只是不参与归档）。
+
+        ORDER BY create_time DESC 是整个归档页的排序基础：
+        Service 用的 LinkedHashMap 会保持插入顺序，所以月份自然从新到旧，
+        每个月内部的文章也是从新到旧，SQL 里排一次就够了。
+
+        resultType 写的是全限定名，因为 mybatis.type-aliases-package
+        只配了 cuit.mygit.entity 这个包，common 包下的类没有简称可用。
+    -->
+    <select id="selectArchive" resultType="cuit.mygit.common.ArchiveItem">
+        SELECT DATE_FORMAT(create_time, '%Y-%m') AS `month`,
+               article_id,
+               title,
+               user_id,
+               category_id,
+               view_count,
+               create_time
+        FROM article
+        WHERE status = 1
+          AND create_time IS NOT NULL
+        ORDER BY create_time DESC
     </select>
 
 </mapper>
+

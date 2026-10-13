@@ -46,7 +46,7 @@ def actor(x, y, text):
             fontsize=12.5, fontweight='bold', color=c, zorder=4)
 
 
-def usecase(cx, cy, text, w=2.8, h=0.8):
+def usecase(cx, cy, text, w=2.8, h=0.7):
     """画用例椭圆"""
     ax.add_patch(Ellipse((cx, cy), w, h, facecolor=UC_FILL,
                          edgecolor=UC_EDGE, linewidth=1.5, zorder=3))
@@ -63,40 +63,42 @@ def line(p1, p2):
 # ============================================================
 # 布局坐标
 # ============================================================
-BOX_X0, BOX_Y0 = 3.2, 0.3          # 系统边界框左下角
-BOX_W, BOX_H = 9.6, 10.9           # 系统边界框宽高
+BOX_X0, BOX_Y0 = 3.2, 0.15         # 系统边界框左下角
+BOX_W, BOX_H = 9.6, 11.2           # 系统边界框宽高
 
 COL_LEFT = 5.4                     # 左列（游客 + 注册用户）用例的中心 x
 COL_RIGHT = 10.4                   # 右列（管理员）用例的中心 x
 
-A_TOURIST = (1.4, 9.4)             # 游客
-A_USER = (1.4, 3.6)                # 注册用户
-A_ADMIN = (14.6, 7.7)              # 管理员
+A_TOURIST = (1.4, 9.6)             # 游客
+A_USER = (1.4, 3.3)                # 注册用户
+A_ADMIN = (14.6, 7.2)              # 管理员
 
 # ---------- 用例清单：(中心x, 中心y, 文字) ----------
 TOURIST_UC = [
-    (COL_LEFT, 9.9, '浏览文章'),
-    (COL_LEFT, 9.0, '搜索文章'),
-    (COL_LEFT, 8.1, '查看文章详情'),
-    (COL_LEFT, 7.2, '注册账号'),
+    (COL_LEFT, 10.2, '浏览文章'),
+    (COL_LEFT, 9.42, '按热门/最新浏览'),
+    (COL_LEFT, 8.64, '搜索文章'),
+    (COL_LEFT, 7.86, '查看文章详情'),
+    (COL_LEFT, 7.08, '注册账号'),
 ]
 
 USER_UC = [
-    (COL_LEFT, 6.2, '登录'),
-    (COL_LEFT, 5.35, '发表文章'),
-    (COL_LEFT, 4.5, '编辑自己的文章'),
-    (COL_LEFT, 3.65, '删除自己的文章'),
-    (COL_LEFT, 2.8, '发表评论'),
-    (COL_LEFT, 1.95, '删除自己的评论'),
-    (COL_LEFT, 1.1, '管理个人资料'),
+    (COL_LEFT, 6.10, '登录'),
+    (COL_LEFT, 5.32, '发表文章'),
+    (COL_LEFT, 4.54, '编辑自己的文章'),
+    (COL_LEFT, 3.76, '删除自己的文章'),
+    (COL_LEFT, 2.98, '发表评论'),
+    (COL_LEFT, 2.20, '删除自己的评论'),
+    (COL_LEFT, 1.42, '关注/取消关注博主'),
+    (COL_LEFT, 0.64, '管理个人资料'),
 ]
 
 ADMIN_UC = [
-    (COL_RIGHT, 9.5, '管理用户'),
-    (COL_RIGHT, 8.6, '管理分类'),
-    (COL_RIGHT, 7.7, '管理标签'),
-    (COL_RIGHT, 6.8, '删除任意文章'),
-    (COL_RIGHT, 5.9, '删除任意评论'),
+    (COL_RIGHT, 9.0, '管理用户'),
+    (COL_RIGHT, 8.1, '管理分类'),
+    (COL_RIGHT, 7.2, '管理标签'),
+    (COL_RIGHT, 6.3, '删除任意文章'),
+    (COL_RIGHT, 5.4, '删除任意评论'),
 ]
 
 # ---------- 先画所有连线（zorder 最低）----------
@@ -124,14 +126,14 @@ actor(*A_USER, '注册用户')
 actor(*A_ADMIN, '管理员')
 
 # ---------- 标题与说明 ----------
-ax.text(8.0, 11.75, '个人知识博客系统  用例图', ha='center', va='center',
+ax.text(8.0, 11.95, '个人知识博客系统  用例图', ha='center', va='center',
         fontproperties=FONT, fontsize=17, fontweight='bold', color=DEEP)
-ax.text(0.3, 0.15, '说明：注册用户只能操作"自己的"文章和评论；管理员可以操作任意文章和评论。',
+ax.text(0.3, 0.05, '说明：注册用户只能操作"自己的"文章和评论；管理员可以操作任意文章和评论。',
         ha='left', va='center', fontproperties=FONT, fontsize=10, color='#777777')
 
 # ---------- 画布范围 ----------
 ax.set_xlim(0.2, 16.2)
-ax.set_ylim(-0.2, 12.1)
+ax.set_ylim(-0.3, 12.3)
 ax.axis('off')
 plt.tight_layout()
 

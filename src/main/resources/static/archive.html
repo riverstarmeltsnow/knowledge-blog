@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>知识博客 · 归档</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== 顶部导航 ==================== -->
+<header class="nav">
+    <div class="nav-inner">
+        <a class="brand" href="index.html">知识博客<span class="brand-dot">.</span></a>
+
+        <nav class="nav-links">
+            <a class="nav-link" href="index.html">首页</a>
+            <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link active" href="archive.html">归档</a>
+            <a class="nav-link" href="manage.html">管理</a>
+        </nav>
+
+        <div class="nav-right">
+            <form class="search-box" id="searchForm">
+                <input type="text" id="searchInput" placeholder="搜索文章标题…" autocomplete="off">
+                <button type="submit" title="搜索">搜索</button>
+            </form>
+
+            <div class="who" id="who"></div>
+        </div>
+    </div>
+</header>
+
+<main class="layout">
+    <div class="browse-grid">
+
+        <!-- ==================== 左栏：年份索引 ==================== -->
+        <aside class="browse-side">
+            <div class="side-panel">
+                <div class="side-title">年份</div>
+                <div class="side-list" id="yearIndex"></div>
+            </div>
+        </aside>
+
+        <!-- ==================== 右栏：按月排布的文章 ==================== -->
+        <section>
+            <div class="page-head">
+                <h1 class="page-title">归档</h1>
+                <p class="page-sub" id="pageSub"></p>
+            </div>
+
+            <div id="archiveArea">
+                <div class="loading">正在加载…</div>
+            </div>
+        </section>
+
+    </div>
+</main>
+
+<script src="js/common.js"></script>
+<script>
+    /**
+     * 归档页 —— 把全部文章按"年-月"排成一条时间线。
+     *
+     * 分组的活儿在**后端**做完了（GET /article/archive 返回的就是
+     * [{month, articles}, ...]），这一页只管画。之所以不在前端分：
+     * 前端能分的前提是先把全部文章拉下来，而"分组"这件事本来一句
+     * 遍历就完了，没必要让每个浏览器各算一遍。后端算一次，
+     * 谁打开这一页拿到的都是同一份结果，将来加缓存也方便。
+     *
+     * 拿到的顺序就是最终顺序（月份从新到旧、每月内部也从新到旧），
+     * 这里**不再排序** —— 排序规则只写在 SQL 一处，省得两边打架。
+     */
+
+    /** 这一页要用到的数据 */
+    const state = {
+        months: [],       // 后端分好组的归档：[{month:'2026-09', articles:[...]}, ...]
+        users: [],        // 全部用户，用来把 userId 显示成名字
+        categories: []    // 全部分类，用来把 categoryId 显示成分类名
+    };
+
+    // ==================== 启动 ====================
+
+    async function init() {
+        renderLoginState('#who');
+        initSearchBox();
+
+        try {
+            // 三者互不依赖，一起发
+            const [months, users, categories] = await Promise.all([
+                get('/article/archive'),
+                get('/user/list'),
+                get('/category/list')
+            ]);
+            state.months = months;
+            state.users = users;
+            state.categories = categories;
+        } catch (e) {
+            $('#archiveArea').innerHTML = emptyHtml('加载失败：' + e.message,
+                '检查一下后端是不是还开着', '⚠');
+            return;
+        }
+
+        render();
+    }
+
+    // ==================== 渲染 ====================
+
+    function render() {
+        const area = $('#archiveArea');
+
+        if (!state.months.length) {
+            $('#pageSub').textContent = '还没有人发表文章';
+            $('#yearIndex').innerHTML = '<div class="side-empty">还没有内容</div>';
+            area.innerHTML = emptyHtml('归档里还什么都没有',
+                '去「管理」页面写下第一篇吧');
+            return;
+        }
+
+        // flatMap 把每个月里的文章摊平成一个大数组，用来数总量
+        const total = state.months.flatMap(m => m.articles).length;
+        $('#pageSub').textContent =
+            '共 ' + total + ' 篇文章，分布在 ' + state.months.length + ' 个月里';
+
+        renderYearIndex();
+        area.innerHTML = state.months.map(monthSectionHtml).join('');
+    }
+
+    /**
+     * 左栏的年份索引。
+     *
+     * state.months 是按月排的，同一个年份会出现很多次，所以先按年份归并：
+     * 年份 -> { 篇数, 这个年份里最新的那个月 }。
+     *
+     * 记住"最新的那个月"是为了让点击能跳到正确的位置。跳转目标如果
+     * 写成 id="year-2026"，那年里有好几个月就会生成好几个一模一样的 id ——
+     * 重复 id 的 HTML 是无效的，浏览器只会认第一个。所以改成跳到
+     * 那个年份的**第一个月**（月份已按从新到旧排好，第一次遇到的那个
+     * 就是这个年里最新的月份，也正是这一年在页面上的开头）。
+     *
+     * 用 Map 而不是普通对象：Map 的键也是按插入顺序排的，
+     * 而 months 本身已经是从新到旧，归并出来自然新年份在前。
+     */
+    function renderYearIndex() {
+        const byYear = new Map();
+
+        state.months.forEach(month => {
+            const year = month.month.slice(0, 4);   // '2026-09' 的前四位就是年份
+            if (!byYear.has(year)) {
+                byYear.set(year, { count: 0, firstMonth: month.month });
+            }
+            byYear.get(year).count += month.articles.length;
+        });
+
+        $('#yearIndex').innerHTML = [...byYear.entries()].map(([year, info]) =>
+            '<a class="side-item" href="#month-' + info.firstMonth + '">'
+            +   '<span>' + year + ' 年</span>'
+            +   '<span class="side-count">' + info.count + '</span>'
+            + '</a>'
+        ).join('');
+    }
+
+    /**
+     * 一个月份的整块内容：标题 + 这个月的文章列表。
+     *
+     * 文章卡片直接用 common.js 里的 articleCardHtml —— 首页、分类页
+     * 用的都是它，归档页再写一份的话，改样式就得记住改三个地方。
+     * 归档响应里每篇文章带的字段（title / userId / categoryId /
+     * createTime / viewCount）正好够它用。
+     */
+    function monthSectionHtml(month) {
+        const year = month.month.slice(0, 4);
+        const m = Number(month.month.slice(5, 7));   // '09' -> 9，去掉前导零
+
+        return '<section class="archive-month" id="month-' + month.month + '">'
+            +   '<h2 class="archive-month-title">'
+            +     year + ' 年 ' + m + ' 月'
+            +     '<span class="archive-count">' + month.articles.length + ' 篇</span>'
+            +   '</h2>'
+            +   articleListHtml(month.articles, state.users, state.categories)
+            + '</section>';
+    }
+
+    init();
+</script>
+</body>
+</html>

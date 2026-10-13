@@ -16,6 +16,7 @@
         <nav class="nav-links">
             <a class="nav-link" href="index.html">首页</a>
             <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="archive.html">归档</a>
             <a class="nav-link active" href="manage.html">管理</a>
         </nav>
 
@@ -193,9 +194,23 @@
 
     /** 把四个模块的数据全拉一遍 */
     async function loadAll() {
+        /*
+         * 文章列表有两个接口，看登录状态选：
+         *   没登录 → /article/list   只有已发布的
+         *   登录了 → /article/manage 多出"自己的草稿"（管理员则多出所有人的草稿）
+         *
+         * 注意草稿是**后端在 SQL 里滤掉的**，不是前端拿到全部再藏起来。
+         * 前端藏起来的那种做法等于把草稿的标题和ID发给了所有人，
+         * 按 F12 就能看见 —— 那种"隐藏"不算隐藏。
+         */
+        const me = getMe();
+        const articleRequest = me
+            ? get(withQuery('/article/manage', { operatorId: me.userId }))
+            : get('/article/list');
+
         try {
             const [articles, categories, tags, users] = await Promise.all([
-                get('/article/list'),
+                articleRequest,
                 get('/category/list'),
                 get('/tag/list'),
                 get('/user/list')
@@ -337,14 +352,29 @@
             + '<tr>'
             +   '<td>' + article.articleId + '</td>'
             +   '<td><a href="post.html?id=' + article.articleId + '">'
-            +     escapeHtml(article.title) + '</a></td>'
+            +     escapeHtml(article.title) + '</a>'
+            // 草稿挂个角标。几十行里混着几篇没写完的，
+            // 不给标记的话根本找不着哪篇是稿子
+            +     (article.status === 0 ? ' <span class="draft-tag">草稿</span>' : '')
+            +   '</td>'
             +   '<td>' + escapeHtml(userNameOf(state.users, article.userId)) + '</td>'
             +   '<td>' + (categoryNameOf(state.categories, article.categoryId) || '—') + '</td>'
             +   '<td>' + (article.viewCount || 0) + '</td>'
             +   '<td>' + formatTime(article.createTime) + '</td>'
             +   '<td class="row-actions">'
-            +     '<button onclick="openArticleForm(' + article.articleId + ')">编辑</button>'
-            +     '<button class="danger" onclick="deleteArticle(' + article.articleId + ')">删除</button>'
+            // 只有作者本人和管理员能改这一行。没有权限就连按钮都不给 ——
+            // 让人看得见却点不动，比干脆不显示更让人困惑。
+            // 注意这只是"别让人白点一次"，真正拦越权的是后端
+            +     (canTouch(article.userId)
+                    ? '<button onclick="openArticleForm(' + article.articleId + ')">编辑</button>'
+                      // 按钮文字跟着当前状态走：是草稿就显示"发布"，
+                      // 已发布就显示"转为草稿"。同一个按钮两种含义，
+                      // 但标签一直说清"点下去会变成什么"
+                      + (article.status === 0
+                            ? '<button onclick="togglePublish(' + article.articleId + ', 1)">发布</button>'
+                            : '<button onclick="togglePublish(' + article.articleId + ', 0)">转为草稿</button>')
+                      + '<button class="danger" onclick="deleteArticle(' + article.articleId + ')">删除</button>'
+                    : '<span class="row-locked" title="只有作者本人和管理员能改">—</span>')
             +   '</td>'
             + '</tr>').join('');
     }
@@ -372,8 +402,12 @@
              * 想要不这样，得让后端再加一个"只读详情、不计数"的接口；
              * 对实验来说没必要，先这么用着，知道有这回事就行。
              */
+            const me = getMe();
             try {
-                article = await get('/article/' + articleId);
+                // 带上 operatorId：草稿只有作者本人和管理员读得到，
+                // 不带你自己的身份，后端连"这篇能不能给你看"都判不了
+                article = await get(withQuery('/article/' + articleId,
+                    me ? { operatorId: me.userId } : {}));
             } catch (e) {
                 toast('读取文章失败：' + e.message, 'err');
                 return;
@@ -392,34 +426,232 @@
                 '<select id="fCategoryId">'
                 + optionsHtml(state.categories, 'categoryId', 'name', article.categoryId, '（不分类）')
                 + '</select>')
-            + field('正文 *',
-                '<textarea id="fContent" rows="10" class="content-input">'
-                + escapeHtml(article.content) + '</textarea>');
+            + field('正文 * <span class="md-hint">支持 Markdown</span>',
+                '<div class="md-toolbar">'
+                // type="button" 不能省：不给的话它们默认是 submit，
+                // 在表单里点一下就会把表单提交掉
+                + '<button type="button" data-md="bold" title="粗体：**文字**">B</button>'
+                + '<button type="button" data-md="italic" title="斜体：*文字*"><i>I</i></button>'
+                + '<button type="button" data-md="heading" title="小标题：## 文字">H</button>'
+                + '<button type="button" data-md="list" title="列表：- 文字">≣</button>'
+                + '<button type="button" data-md="code" title="行内代码：`代码`">&lt;/&gt;</button>'
+                + '<button type="button" data-md="link" title="链接：[文字](网址)">链接</button>'
+                // 预览按钮单独靠右，和上面那些"插语法"的按钮区分开：
+                // 上面的是改内容，这个是看内容
+                + '<button type="button" id="mdPreviewBtn" class="md-preview-btn">预览</button>'
+                + '</div>'
+                + '<textarea id="fContent" rows="12" class="content-input">'
+                + escapeHtml(article.content) + '</textarea>'
+                + '<div id="mdPreview" class="markdown-body md-preview-pane" hidden></div>')
+            // 新增的稿子 article.status 是 undefined（不是 0），
+            // 所以这里用"是不是 0"来判断，默认落到"发布"上 ——
+            // 发文章默认就是发出去，想要草稿得自己动手选
+            + field('状态',
+                '<select id="fStatus">'
+                + '<option value="1"' + (article.status === 0 ? '' : ' selected') + '>发布</option>'
+                + '<option value="0"' + (article.status === 0 ? ' selected' : '') + '>草稿</option>'
+                + '</select>');
 
         openModal(articleId ? '编辑文章' : '写新文章', body, async () => {
+            const me = getMe();
+            if (!me) {
+                toast('请先登录再操作', 'err');
+                return;
+            }
+
             const payload = {
                 title: $('#fTitle').value.trim(),
                 content: $('#fContent').value.trim(),
                 userId: Number($('#fUserId').value),
                 // 选了"（不分类）"时值是空串，得转成 null，
                 // 否则后端拿到 0 会当成"分类ID是0"，报找不到分类
-                categoryId: $('#fCategoryId').value ? Number($('#fCategoryId').value) : null
+                categoryId: $('#fCategoryId').value ? Number($('#fCategoryId').value) : null,
+                status: Number($('#fStatus').value)
             };
 
             try {
                 if (articleId) {
                     payload.articleId = articleId;
-                    await put('/article/update', payload);
+                    // operatorId 放查询串里，和删除接口一个写法。
+                    // 后端拿它判权限：只有作者本人和管理员能改这篇文章
+                    await put(withQuery('/article/update', { operatorId: me.userId }), payload);
                 } else {
                     await post('/article/add', payload);
                 }
-                toast(articleId ? '已保存' : '发表成功', 'ok');
+                toast(articleId ? '已保存'
+                    : (payload.status === 0 ? '已存为草稿，只有你自己看得到' : '发表成功'), 'ok');
                 closeModal();
                 await loadAll();
             } catch (e) {
                 toast(e.message, 'err');
             }
         });
+
+        // 上面那句 openModal 已经把弹窗内容塞进 DOM 了，
+        // 所以监听必须在这之后才挂得上（挂早了那些元素还不存在）
+        initMarkdownEditor();
+    }
+
+    /**
+     * 发布一篇草稿，或者把已发布的文章转回草稿。
+     *
+     * 这里直接复用 /article/update，没有单开一个"只改状态"的接口：
+     * update 本来就管状态，多开一个接口就多一处要写权限判断的地方，
+     * 漏掉任何一处都等于开了个后门。
+     *
+     * 代价是得先把正文取回来再整体提交（update 要求 title/content 必填）。
+     * 另外取详情会让**已发布**文章的浏览量 +1 —— 这是详情接口本来就有的行为，
+     * 见 openArticleForm 里的说明。草稿不受影响。
+     *
+     * @param {number} articleId 文章ID
+     * @param {number} status    目标状态：1 = 发布，0 = 转回草稿
+     */
+    async function togglePublish(articleId, status) {
+        const me = getMe();
+        if (!me) {
+            toast('请先登录 —— 后端要知道是谁在改');
+            return;
+        }
+
+        try {
+            const article = await get(
+                withQuery('/article/' + articleId, { operatorId: me.userId }));
+
+            await put(withQuery('/article/update', { operatorId: me.userId }), {
+                articleId: articleId,
+                title: article.title,
+                content: article.content,
+                userId: article.userId,
+                categoryId: article.categoryId,
+                status: status
+            });
+
+            toast(status === 1 ? '已发布' : '已转为草稿', 'ok');
+            await loadAll();
+        } catch (e) {
+            toast(e.message, 'err');
+        }
+    }
+
+    // ==================== Markdown 编辑器 ====================
+
+    /**
+     * 给正文输入框装工具条和预览按钮。
+     * <p>
+     * 工具条只干一件事：往光标处塞几个字符。它不解析、不渲染 ——
+     * 就是帮你少敲两个星号而已。真正的渲染全在后端（见 MarkdownRenderer），
+     * 预览走的也是那个接口，所以预览里长什么样，发出来就是什么样。
+     */
+    function initMarkdownEditor() {
+        const box = $('#fContent');
+        if (!box) {
+            return;
+        }
+
+        document.querySelectorAll('#modalBody .md-toolbar button[data-md]')
+            .forEach(btn => btn.addEventListener('click',
+                () => applyMarkdownSnippet(box, btn.dataset.md)));
+
+        $('#mdPreviewBtn').addEventListener('click',
+            () => toggleMarkdownPreview(box, $('#mdPreviewBtn')));
+    }
+
+    /**
+     * 往正文里插入一段 Markdown 语法。
+     *
+     * @param {HTMLTextAreaElement} box  正文输入框
+     * @param {string} kind bold / italic / heading / list / code / link
+     */
+    function applyMarkdownSnippet(box, kind) {
+        // 每种语法无非是"在选中内容前后各补一点东西"。
+        // 没选中任何内容时就塞个占位词，免得留下一对空的标记
+        // （**　** 这种，光标还卡在中间，看着像坏了）
+        const SNIPPETS = {
+            bold:    {before: '**', after: '**', placeholder: '粗体'},
+            italic:  {before: '*',  after: '*',  placeholder: '斜体'},
+            code:    {before: '`',  after: '`',  placeholder: '代码'},
+            link:    {before: '[',  after: '](https://)', placeholder: '链接文字'},
+            heading: {before: '## ', after: '',  placeholder: '小标题', byLine: true},
+            list:    {before: '- ',  after: '',  placeholder: '列表项', byLine: true}
+        };
+
+        const s = SNIPPETS[kind];
+        if (!s) {
+            return;
+        }
+
+        const start = box.selectionStart;
+        const end = box.selectionEnd;
+
+        if (s.byLine) {
+            // 标题和列表的前缀必须加在**行首**。
+            // 光标停在一行中间时直接插在光标处，会得到 "正文## 小标题" 这种
+            // 谁也不认识的东西。所以整行（或者选中的这几行）一起处理
+            const from = lineStartOf(box.value, start);
+            const to = lineEndOf(box.value, end);
+            const block = box.value.slice(from, to) || s.placeholder;
+
+            const prefixed = block.split('\n')
+                .map(line => s.before + line)
+                .join('\n');
+
+            box.value = box.value.slice(0, from) + prefixed + box.value.slice(to);
+            box.focus();
+            box.setSelectionRange(from, from + prefixed.length);
+            return;
+        }
+
+        const text = box.value.slice(start, end) || s.placeholder;
+        box.value = box.value.slice(0, start) + s.before + text + s.after
+            + box.value.slice(end);
+
+        box.focus();
+        // 选中刚插进去的那段，方便直接接着打字替换掉占位词
+        box.setSelectionRange(start + s.before.length,
+            start + s.before.length + text.length);
+    }
+
+    /** 光标位置所在那一行的开头下标 */
+    function lineStartOf(text, pos) {
+        return text.lastIndexOf('\n', pos - 1) + 1;
+    }
+
+    /** 光标位置所在那一行的末尾下标（不含换行符本身） */
+    function lineEndOf(text, pos) {
+        const nl = text.indexOf('\n', pos);
+        return nl === -1 ? text.length : nl;
+    }
+
+    /**
+     * 切换编辑 / 预览。
+     * <p>
+     * 预览是把正文发给后端的 /article/preview 渲染出来的，不是在前端
+     * 再实现一遍 Markdown。两边用同一个渲染器，才不会出现
+     * "预览里排得好好的、一发出来就不一样" 这种特别难查的问题。
+     */
+    async function toggleMarkdownPreview(box, btn) {
+        const pane = $('#mdPreview');
+
+        // 已经在预览状态了 → 切回编辑
+        if (!pane.hidden) {
+            pane.hidden = true;
+            box.hidden = false;
+            btn.textContent = '预览';
+            btn.classList.remove('active');
+            box.focus();
+            return;
+        }
+
+        try {
+            const html = await post('/article/preview', { content: box.value });
+            pane.innerHTML = html || '<p class="md-empty">（正文还是空的）</p>';
+            pane.hidden = false;
+            box.hidden = true;
+            btn.textContent = '继续编辑';
+            btn.classList.add('active');
+        } catch (e) {
+            toast('预览失败：' + e.message, 'err');
+        }
     }
 
     async function deleteArticle(articleId) {

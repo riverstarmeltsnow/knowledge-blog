@@ -1,5 +1,6 @@
 package cuit.mygit.controller;
 
+import cuit.mygit.common.ArchiveMonth;
 import cuit.mygit.common.PageResult;
 import cuit.mygit.common.Result;
 import cuit.mygit.common.ValidGroup;
@@ -53,9 +54,53 @@ public class ArticleController {
         return Result.success(articles);
     }
 
+    /**
+     * 管理页专用：查"这个人有权管理"的文章，草稿也在内。
+     * <p>
+     * GET /article/manage?operatorId=2
+     * <p>
+     * 和 {@code /article/list} 的差别只有草稿：管理员看得见所有人的草稿，
+     * 普通用户只多看见自己的草稿。首页、分类、搜索用的是 {@code /article/list}
+     * 那一系，草稿在 SQL 里就已经被滤掉了。
+     * <p>
+     * 路径也是固定文字，所以和下面几个查接口一样，必须写在 {@code /{id}} 前面。
+     *
+     * @param operatorId 操作人ID（当前登录用户）
+     * @return 文章列表（不含正文），按发布时间倒序
+     */
+    @GetMapping("/manage")
+    public Result<List<Article>> listForManage(@RequestParam("operatorId") Integer operatorId) {
+        return Result.success(articleService.listForManage(operatorId));
+    }
+
+    /**
+     * 按月归档：把全部已发布文章按"年-月"分好组返回。
+     * <p>
+     * GET /article/archive
+     * <p>
+     * 不用带任何参数，也不需要登录 —— 归档页是给所有访客看的。
+     * <p>
+     * 返回的 data 已经分好组了，每个月一个元素：
+     * <pre>
+     * {"code":200,"data":[
+     *   {"month":"2026-03","articles":[{"articleId":17,"title":"…","createTime":"…"}]},
+     *   {"month":"2026-01","articles":[...]}
+     * ]}
+     * </pre>
+     * 月份从新到旧，每个月里的文章也是从新到旧 —— 前端直接画，不用再排序。
+     * <p>
+     * 同样是固定路径，写在 {@code /{id}} 前面。
+     *
+     * @return 按月份分组的文章列表（不含正文）
+     */
+    @GetMapping("/archive")
+    public Result<List<ArchiveMonth>> archive() {
+        return Result.success(articleService.listArchive());
+    }
+
     /*
      * ============================================================
-     * 下面五个都是"查"接口，而且路径都是**固定文字**开头的，
+     * 下面七个都是"查"接口，而且路径都是**固定文字**开头的，
      * 所以必须写在这几个方法的前面 —— 尤其要放在 /{id} 前面。
      *
      * 原因：/{id} 是个路径变量，能匹配 /article/ 底下的任何一段。
@@ -91,6 +136,57 @@ public class ArticleController {
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "10") int size) {
         return Result.success(articleService.page(page, size));
+    }
+
+    /**
+     * 分页查热门文章 —— 按浏览量从高到低。
+     * <p>
+     * GET /article/hot?page=1&size=10
+     * <p>
+     * 首页"热门"那个标签用的就是它。和 {@code /page} 的区别只有排序：
+     * 那个是"最新"（按发布时间倒序），这个是"最热"（按浏览量倒序）。
+     * 两个接口返回的结构（分页对象）完全一样，前端换一下 URL 就行。
+     * <p>
+     * 为什么要单独开一个接口而不是给 {@code /page} 加个 sort 参数：
+     * 排序字段是**列名**，没法用预编译占位符，只能拼字符串，
+     * 而拼字符串就是 SQL 注入的口子。与其为了少一个接口去写白名单校验，
+     * 不如两条 SQL 各管各的。
+     *
+     * @param page 第几页，从 1 开始
+     * @param size 每页多少条，最多 50 条
+     * @return 分页结果
+     */
+    @GetMapping("/hot")
+    public Result<PageResult<Article>> hot(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
+        return Result.success(articleService.hot(page, size));
+    }
+
+    /**
+     * 分页查推荐流 —— 只包含我关注的人写的文章。
+     * <p>
+     * GET /article/recommend?followerId=2&page=1&size=10
+     * <p>
+     * 首页"推荐"那个标签用的就是它。{@code followerId} 是<b>必填</b>的 ——
+     * 没登录就没有关注关系可言，前端在调用之前会先判断登录状态，
+     * 没登录时压根不发这个请求，而是直接显示一段引导文案。
+     * <p>
+     * 一条都没有（没关注任何人）时返回的是<b>正常的分页结果</b>，
+     * 里面 list 是空的、total 是 0，不是报错。前端拿到 total=0 就显示
+     * "还没有关注任何人，去文章详情页点作者旁边的关注"。
+     *
+     * @param page       第几页，从 1 开始
+     * @param size       每页多少条，最多 50 条
+     * @param followerId 关注者ID（当前登录用户）
+     * @return 分页结果
+     */
+    @GetMapping("/recommend")
+    public Result<PageResult<Article>> recommend(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            @RequestParam("followerId") Integer followerId) {
+        return Result.success(articleService.recommend(page, size, followerId));
     }
 
     /**
@@ -155,16 +251,48 @@ public class ArticleController {
      * 查文章详情（含正文），同时把浏览量加一。
      * <p>
      * GET /article/1
+     * GET /article/1?operatorId=2
      * <p>
      * 注意：这个接口每被调用一次，数据库里的浏览量就涨 1，
-     * 刷新页面就会涨，属于正常现象。
+     * 刷新页面就会涨，属于正常现象。草稿除外 —— 草稿不加浏览量。
+     * <p>
+     * {@code operatorId} 可以<b>不传</b>，不传就当成游客：已发布的文章照样看，
+     * 草稿一律看不到。所以这个参数是可选的，而删除、修改那些接口里
+     * 它是必填的 —— 区别在于"看"本身就是人人可为的事，
+     * 只是看的范围不一样；而"改"没身份就无从谈起。
      *
-     * @param id 文章ID
+     * @param id         文章ID
+     * @param operatorId 操作人ID（当前登录用户），不传表示游客
      * @return 文章详情
      */
     @GetMapping("/{id}")
-    public Result<Article> getById(@PathVariable("id") Integer id) {
-        return Result.success(articleService.getById(id));
+    public Result<Article> getById(@PathVariable("id") Integer id,
+                                   @RequestParam(value = "operatorId", required = false)
+                                   Integer operatorId) {
+        return Result.success(articleService.getById(id, operatorId));
+    }
+
+    /**
+     * 渲染预览：把一段 Markdown 变成 HTML 返回，不落库。
+     * <p>
+     * POST /article/preview
+     * 请求体：{@code {"content":"## 标题\n\n正文"}}
+     * <p>
+     * 编辑器里点"预览"时调它。这样预览和正式显示用的是<b>同一个渲染器</b> ——
+     * 要是前端自己再引一个 marked.js 来预览，迟早会碰上
+     * "预览里排得好好的、一发出来就不一样"这种问题，
+     * 而且那种问题很难查，因为两边都在"正确地"按各自的规范渲染。
+     * <p>
+     * 入参直接复用 {@code Article}，而不是另建一个只有一个字段的类：
+     * 要渲染的就是 article.content，字段名和含义完全对得上，
+     * 另造一个类只是多一层要跟着改的东西。其余字段一律忽略。
+     *
+     * @param article 只取它的 content
+     * @return 渲染好的 HTML 片段
+     */
+    @PostMapping("/preview")
+    public Result<String> preview(@RequestBody Article article) {
+        return Result.success(articleService.renderPreview(article.getContent()));
     }
 
     /**
@@ -194,14 +322,19 @@ public class ArticleController {
      * 新增时 articleId 由数据库生成、提交时还没有，不能要求必填；
      * 修改时没 ID 就不知道改哪一篇，必须必填。
      * 两套规则同时写在 Article 那一个类上，靠分组区分这次该用哪套。
+     * <p>
+     * {@code operatorId} 放在查询串里（{@code PUT /article/update?operatorId=1}），
+     * 和下面 delete 的写法一致。它用来判断权限：只有作者本人或管理员能改。
      *
-     * @param article 要修改的文章
+     * @param article    要修改的文章
+     * @param operatorId 操作人ID（当前登录用户）
      * @return 不带数据的成功结果
      */
     @PutMapping("/update")
     public Result<Void> update(
-            @Validated(ValidGroup.Update.class) @RequestBody Article article) {
-        articleService.update(article);
+            @Validated(ValidGroup.Update.class) @RequestBody Article article,
+            @RequestParam("operatorId") Integer operatorId) {
+        articleService.update(article, operatorId);
         return Result.success(null);
     }
 

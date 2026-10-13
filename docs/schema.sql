@@ -57,6 +57,7 @@ CREATE TABLE `article` (
   `content`     LONGTEXT                         COMMENT '文章正文（长文本）',
   `user_id`     INT NOT NULL                     COMMENT '作者ID，外键关联 user',
   `category_id` INT                              COMMENT '分类ID，外键关联 category',
+  `status`      TINYINT NOT NULL DEFAULT 1       COMMENT '状态：0=草稿（只有作者本人和管理员看得到），1=已发布',
   `view_count`  INT DEFAULT 0                    COMMENT '浏览量',
   `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
   `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后修改时间，自动更新',
@@ -77,7 +78,36 @@ CREATE TABLE `article_tag` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章标签关联表（多对多中间表）';
 
 -- ------------------------------------------------------------
--- 6. 评论表
+-- 6. 用户关注表（M:N 拆解出的中间表，用户关注用户）
+--
+-- 这是全库唯一一张"两张外键指向同一张表"的表：
+-- follower_id 和 followee_id 都指向 user，含义完全不同，
+-- 所以列名必须区分清楚，不能像 article_tag 那样两边都叫得含糊。
+--   follower_id = 关注者，也就是"我"
+--   followee_id = 被关注者，也就是"我关注的那个人"
+--
+-- 和 article_tag 的另一个区别：这里多了 create_time。
+-- article_tag 记录的是"这篇贴了这个标签"这种静态事实，时间没意义；
+-- 关注是个发生在某个时刻的事件，时间有意义 —— 比如"按关注时间倒序"
+-- 列出我关注的人，或者显示"你们互相关注"。
+--
+-- 联合主键 (follower_id, followee_id) 挡住重复关注：
+-- 同一个人关注同一个人第二次时，数据库直接拒绝，不靠代码判断。
+-- 自我关注（follower_id = followee_id）数据库挡不住，
+-- 因为"两个值相等"是行级约束，MySQL 的 CHECK 在 8.0.16 之前会被忽略，
+-- 所以这条规则放在 Service 层拦（见 UserFollowServiceImpl）。
+-- ------------------------------------------------------------
+CREATE TABLE `user_follow` (
+  `follower_id` INT NOT NULL COMMENT '关注者ID（我），外键关联 user',
+  `followee_id` INT NOT NULL COMMENT '被关注者ID（我关注的人），外键关联 user',
+  `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '关注时间',
+  PRIMARY KEY (`follower_id`, `followee_id`),
+  CONSTRAINT fk_uf_follower FOREIGN KEY (`follower_id`) REFERENCES `user`(`user_id`),
+  CONSTRAINT fk_uf_followee FOREIGN KEY (`followee_id`) REFERENCES `user`(`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户关注关系表（多对多中间表）';
+
+-- ------------------------------------------------------------
+-- 7. 评论表
 -- 关联三张表：用户（谁评论的）、文章（评论了哪篇）、自己（挂在哪条顶层评论下面）
 -- 评论只有两层：parent_id 为 NULL 的是顶层评论，有值的是它下面的回复。
 -- 回复的回复也会被归到同一个顶层评论下，所以 parent_id 永远指向顶层评论，

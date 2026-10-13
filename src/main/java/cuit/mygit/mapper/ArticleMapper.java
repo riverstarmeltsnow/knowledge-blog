@@ -1,5 +1,6 @@
 package cuit.mygit.mapper;
 
+import cuit.mygit.common.ArchiveItem;
 import cuit.mygit.entity.Article;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -94,11 +95,96 @@ public interface ArticleMapper {
     List<Article> selectPage(@Param("offset") int offset, @Param("size") int size);
 
     /**
+     * 分页查热门文章 —— 按浏览量从高到低。
+     * <p>
+     * 和 {@link #selectPage} 的区别只有排序：那个按发布时间排（最新），
+     * 这个按浏览量排（最热）。参数含义完全一样，offset 仍然是"跳过多少条"。
+     * <p>
+     * 浏览量一样多的时候按文章ID倒序，保证结果稳定 ——
+     * 排序不确定的话，翻页时会出现同一篇文章在前后两页各出现一次，
+     * 或者干脆谁都查不到。
+     *
+     * @param offset 跳过多少条
+     * @param size   取多少条
+     * @return 这一页的文章列表
+     */
+    List<Article> selectHotPage(@Param("offset") int offset, @Param("size") int size);
+
+    /**
+     * 分页查推荐流 —— 只查"这个人关注的人"写的已发布文章。
+     * <p>
+     * 一次 JOIN 完成两件事：找出我关注了谁、再取出他们写的文章。
+     * 排序按发布时间倒序，所以关注的人一发新文章就会出现在最前面。
+     *
+     * @param followerId 关注者ID（当前登录用户）
+     * @param offset     跳过多少条
+     * @param size       取多少条
+     * @return 这一页的文章列表；没关注任何人时是空列表
+     */
+    List<Article> selectRecommendedByFollowerId(@Param("followerId") Integer followerId,
+                                                @Param("offset") int offset,
+                                                @Param("size") int size);
+
+    /**
+     * 推荐流的总条数 —— 分页时算总页数要用。
+     * <p>
+     * 和 {@link #countAll()} 的区别：那个数的是全站已发布文章，
+     * 这个只数"我关注的人写的"。它必须和
+     * {@link #selectRecommendedByFollowerId} 用同一套 WHERE 条件，
+     * 否则算出来的总页数对不上实际能取到的数据。
+     *
+     * @param followerId 关注者ID（当前登录用户）
+     * @return 推荐流里的文章总篇数
+     */
+    long countByFollowerId(@Param("followerId") Integer followerId);
+
+    /**
+     * 管理页专用：查"这个人有权管理"的全部文章，草稿也在内。
+     * <p>
+     * 和 {@link #selectAll()} 的区别就是草稿：
+     * <ul>
+     *   <li>管理员（includeAllDrafts = true）：所有人的文章都要，草稿也要 —— 管理员有责任管住全站内容</li>
+     *   <li>普通用户：已发布的全都给，另外加上<b>自己的</b>草稿 ——
+     *       自己的草稿当然要能在后台看见、能接着改，别人的草稿则一条都不给</li>
+     * </ul>
+     * 不能简单地"把草稿全查出来在前端过滤"：那样草稿的标题和ID已经发到
+     * 别人浏览器里了，随手按 F12 就能看见。过滤必须发生在 SQL 这一层。
+     *
+     * @param operatorId      操作人ID（当前登录用户）
+     * @param includeAllDrafts 是不是能看到所有人的草稿（管理员为 true）
+     * @return 文章列表，按发布时间倒序
+     */
+    List<Article> selectForManage(@Param("operatorId") Integer operatorId,
+                                  @Param("includeAllDrafts") boolean includeAllDrafts);
+
+    /**
      * 统计文章总数 —— 分页时算总页数要用。
      *
      * @return 文章总篇数
      */
     long countAll();
+
+    /**
+     * 归档页专用：查全部已发布文章的"月份 + 摘要"。
+     * <p>
+     * 和 {@link #selectAll()} 的关系：过滤条件一样（只要已发布的），
+     * 排序也一样（按发布时间倒序），区别只有一个 —— 多返回一列
+     * {@code month}。这一列不是表里的字段，是 SQL 用 {@code DATE_FORMAT}
+     * 从 {@code create_time} 算出来的 {@code 'YYYY-MM'} 字符串。
+     * <p>
+     * 同样<b>不查 content</b>：归档页会把所有文章一次性列出来，
+     * 正文塞进去就太重了。
+     * <p>
+     * 另外会排掉 {@code create_time} 为空的记录 —— 没有时间的文章没法往
+     * 时间线上放，而 {@code DATE_FORMAT(NULL, ...)} 得到 NULL，会让
+     * {@code month} 变成 null 一路传到前端。详见 XML 里的说明。
+     * <p>
+     * 返回的是平铺的一行行数据，"哪几篇属于同一个月"由 Service 层分组 ——
+     * 因为它拿到的已经是有序的，一次遍历就能分完，SQL 里不需要 GROUP BY。
+     *
+     * @return 已发布文章的月份与摘要，按发布时间倒序；一篇都没有时返回空集合
+     */
+    List<ArchiveItem> selectArchive();
 
     /**
      * 新增文章。

@@ -16,6 +16,7 @@
         <nav class="nav-links">
             <a class="nav-link" href="index.html">首页</a>
             <a class="nav-link" href="browse.html">分类与标签</a>
+            <a class="nav-link" href="archive.html">归档</a>
             <a class="nav-link" href="manage.html">管理</a>
         </nav>
 
@@ -98,7 +99,8 @@
         allTags: [],       // 系统里全部标签，用来生成"添加标签"下拉
         comments: [],      // 这篇文章的全部评论（含回复，扁平结构）
         users: [],         // 全部用户，用来把 userId 显示成名字
-        replyTarget: null  // 正在回复哪条评论的ID；null 表示没在回复
+        replyTarget: null, // 正在回复哪条评论的ID；null 表示没在回复
+        following: false   // 我关注了这篇文章的作者没有
     };
 
     // ==================== 启动 ====================
@@ -146,13 +148,33 @@
     // ==================== 加载文章 ====================
 
     async function loadPost() {
+        // 带上 operatorId：草稿只有作者本人和管理员打得开。
+        // 不带你自己的身份，后端只能按游客处理 —— 已发布的照样看，
+        // 草稿会回一句"文章不存在"
+        const me = getMe();
+
         try {
-            // 这一次调用会把浏览量 +1，所以只调这一次
-            state.post = await get('/article/' + state.articleId);
+            // 这一次调用会把浏览量 +1，所以只调这一次（草稿不计）
+            state.post = await get(withQuery('/article/' + state.articleId,
+                me ? { operatorId: me.userId } : {}));
             state.tags = await get('/article/' + state.articleId + '/tags');
         } catch (e) {
             showFatal('这篇文章打不开了：' + e.message);
             return;
+        }
+
+        // 关注状态要等文章拿到手才知道该查谁（作者的 user_id 在文章里）。
+        // 游客不查 —— 后端对没带 followerId 的请求一律回 false，
+        // 问了也是白问，还多一次往返。
+        if (me) {
+            try {
+                state.following = await get(withQuery('/follow/status',
+                    { followerId: me.userId, targetId: state.post.userId }));
+            } catch (e) {
+                // 查不到就当没关注：按钮显示成"+ 关注"，点一下照样能用。
+                // 比整页报错强 —— 关注只是这一页的一个附属功能
+                state.following = false;
+            }
         }
 
         renderPost();
@@ -166,10 +188,20 @@
 
         let html = ''
             + '<a class="back-link" href="index.html">← 返回列表</a>'
+            // 草稿顶上挂条明显的提示。不然作者自己打开这篇、
+            // 看着和已发布的没两样，会以为早就发出去了
+            + (post.status === 0
+                ? '<div class="draft-banner">'
+                    + '<strong>这是一篇草稿</strong>'
+                    + '<span>只有你和管理员看得到，不会出现在首页、分类页和搜索结果里。</span>'
+                    + '<a href="manage.html?edit=' + post.articleId + '">去发布 →</a>'
+                  + '</div>'
+                : '')
             + '<div class="post-header">'
             +   '<h1>' + escapeHtml(post.title) + '</h1>'
             +   '<div class="post-meta">'
             +     '<span class="meta-item">' + escapeHtml(author) + '</span>'
+            +     followButtonHtml()
             +     '<span class="meta-item">' + formatTime(post.createTime) + '</span>'
             +     '<span class="meta-item">' + (post.viewCount || 0) + ' 次浏览</span>'
             +     (post.updateTime && post.updateTime !== post.createTime
@@ -177,9 +209,26 @@
                         : '')
             +   '</div>'
             + '</div>'
-            // plain 这个类会让 white-space 变成 pre-wrap，把正文里的换行保留下来。
-            // 不加的话用户在 textarea 里敲的回车会被浏览器全吃掉，挤成一坨
-            + '<div class="post-content plain">' + escapeHtml(post.content) + '</div>'
+            /*
+             * 正文改用后端渲染好的 contentHtml 了。
+             *
+             * 这里**故意不再套 escapeHtml**：contentHtml 里就是我们想要的那些
+             * <h2> <p> <code> 标签，再转义一遍会把它们全变成页面上一堆
+             * 看得见的标签文字。之所以敢直接塞 HTML，是因为转义已经在
+             * 服务端做完了 —— 渲染器配置了 escapeHtml(true)，用户在正文里
+             * 手写的原生 HTML 早被变成文字了，能到这里的标签都是渲染器自己生成的。
+             *
+             * 顺带把 plain 这个类去掉：它会让 white-space 变成 pre-wrap，
+             * 那会把 HTML 标签之间的换行也当回事，段落之间凭空多出空白。
+             *
+             * 万一 contentHtml 是空的（老接口、异常），退回显示转义后的原文 ——
+             * 排版会丢，但内容还在，比直接白屏强
+             */
+            + '<div class="post-content markdown-body">'
+            +   (post.contentHtml
+                    ? post.contentHtml
+                    : '<p>' + escapeHtml(post.content) + '</p>')
+            + '</div>'
             + '<div class="tag-row" id="tagBox"></div>'
             + (editable
                 ? '<div class="detail-actions">'
@@ -196,6 +245,80 @@
         if (editable) {
             $('#deletePost').addEventListener('click', removePost);
         }
+
+        // 关注按钮不是每篇都有（自己的文章上就没有），
+        // 所以要先确认它真的被画出来了再绑事件
+        const followBtn = $('#followBtn');
+        if (followBtn) {
+            followBtn.addEventListener('click', toggleFollow);
+        }
+    }
+
+    // ==================== 关注作者 ====================
+
+    /**
+     * 作者名字旁边那个关注按钮。
+     *
+     * 三种情况不画按钮：
+     *   1. 这是自己的文章 —— 自己关注自己没有意义，后端也会拒绝。
+     *      判断和编辑/删除按钮一样用 post.userId 比，不用问后端。
+     *   2. 游客 —— 不过这里**仍然画出按钮**，点的时候再提示去登录。
+     *      这和评论区的做法一致（"还没登录，发表前请先登录"），
+     *      比整个按钮凭空消失好理解：用户至少知道有这么一个功能。
+     *
+     * @returns {string} 按钮的 HTML；不该出现时返回空串
+     */
+    function followButtonHtml() {
+        const me = getMe();
+
+        // 自己的文章不显示
+        if (me && me.userId === state.post.userId) {
+            return '';
+        }
+
+        const label = state.following ? '已关注' : '+ 关注';
+        // 已关注时用朴素样式、未关注时用主色 —— 视觉上引导"去关注"，
+        // 但已关注的按钮不能太显眼，否则整页最抢眼的是个"取消"入口
+        const style = state.following ? '' : ' btn-primary';
+
+        return '<button class="btn btn-sm follow-btn' + style + '" id="followBtn" type="button">'
+            + label + '</button>';
+    }
+
+    /**
+     * 点关注按钮：已关注就取关，没关注就关注。
+     *
+     * 成功后重新 renderPost() 一次，而不是手动改按钮上的文字 ——
+     * 关注状态还影响别的东西（以后可能加粉丝数之类），
+     * 重新画一遍最不容易漏。renderPost 是纯渲染，重画是安全的。
+     */
+    async function toggleFollow() {
+        const me = getMe();
+        if (!me) {
+            toast('请先登录再关注');
+            return;
+        }
+
+        const targetId = state.post.userId;
+        const wasFollowing = state.following;
+
+        try {
+            if (wasFollowing) {
+                await del(withQuery('/follow/' + targetId, { followerId: me.userId }));
+            } else {
+                await post(withQuery('/follow/' + targetId, { followerId: me.userId }));
+            }
+        } catch (e) {
+            toast(e.message, 'err');
+            return;
+        }
+
+        // 先反转发完提示再重画 —— renderPost 会重建整个 postDetail，
+        // 顺序反过来的话 toast 倒是不受影响（它挂在 body 上），
+        // 但按钮的选中态会和提示文案对不上，看着别扭
+        state.following = !wasFollowing;
+        toast(wasFollowing ? '已取消关注' : '关注成功，他的新文章会出现在首页「推荐」里', 'ok');
+        renderPost();
     }
 
     // ==================== 标签 ====================

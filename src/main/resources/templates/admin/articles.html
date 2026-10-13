@@ -57,7 +57,19 @@
               "如果是 null 就用另一个值"，这里给个占位符，免得表格里出现空白格。
             -->
             <td th:text="${userNames[a.userId]} ?: '—'">hexin</td>
-            <td th:text="${categoryNames[a.categoryId]} ?: '未分类'">学习笔记</td>
+
+            <!--
+              分类和作者不一样，得先判空再查映射，不能只靠 ?:。
+
+              category_id 在库里是允许为 NULL 的（表示"未分类"），而 SpringEL 用
+              **null 当下标**去取 Map 会直接抛 IllegalStateException: No index，
+              那个 ?: 根本没机会生效 —— ?: 管的是"查出来是 null"，管不了"压根没法查"。
+              结果就是只要有任意一篇未分类的文章排在第一页，整个页面 500。
+
+              所以顺序反过来：先看 categoryId 是不是 null，是就写死"未分类"，
+              不是才去查映射。
+            -->
+            <td th:text="${a.categoryId == null ? '未分类' : categoryNames[a.categoryId]}">学习笔记</td>
 
             <td class="adm-soft" th:text="${a.viewCount}">0</td>
 

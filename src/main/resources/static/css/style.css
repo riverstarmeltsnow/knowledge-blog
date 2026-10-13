@@ -26,6 +26,11 @@
     /* 语义色 */
     --danger: #b91c1c;
     --ok: #15803d;
+    /* 琥珀色，专门给"还没定稿"这类状态用（草稿角标、草稿提示条）。
+       不用红色 —— 草稿不是错误，只是没做完 */
+    --warn: #b45309;
+    --warn-soft: #fffbeb;
+    --warn-line: #fcd9a4;
 
     --radius: 10px;
     --radius-sm: 6px;
@@ -378,6 +383,31 @@ h1, h2, h3, h4 {
     text-decoration: none;
 }
 
+/* 「已关注」小标，出现在首页卡片上作者名字后面。
+   用绿色（--ok）而不是分类标那种紫色（--brand）：
+   和分类标长得一样的话，一眼看不出来这标说的是"人"还是"内容"。
+   也不能用草稿那种琥珀色 —— 那个色在这一页专门表示"还没做完" */
+.follow-chip {
+    display: inline-block;
+    font-size: 12px;
+    padding: 2px 9px;
+    border-radius: 20px;
+    background: #ecfdf5;
+    color: var(--ok);
+    border: 1px solid #bbf7d0;
+    font-weight: 500;
+}
+
+/* 文章详情页作者旁边的关注按钮。
+   比 .btn-sm 再小一圈 —— 它嵌在 .post-meta 那一行 13px 的文字里，
+   用 30px 的常规小按钮会把这一行的行高撑开，看着鼓一块 */
+.follow-btn {
+    height: 24px;
+    padding: 0 10px;
+    font-size: 12px;
+    border-radius: 20px;
+}
+
 /* 标签小标 */
 .tag-chip {
     display: inline-block;
@@ -612,9 +642,210 @@ a.tag-chip:hover {
 }
 
 /* 正文里保留换行：用户输入时换的行要照原样显示 */
-.post-content.plain {
-    white-space: pre-wrap;
+/* ==================== Markdown 正文排版 ==================== */
+
+/*
+ * 正文现在是后端渲染好的 HTML（见 MarkdownRenderer），
+ * .post-content 只管整体的字号和行高，具体到标题、列表、代码块长什么样，
+ * 全在这一节。
+ *
+ * 这里只写元素选择器（h2、code、table……），不额外加类名 ——
+ * 渲染器吐出来的就是干净的 <h2> <table>，加类名还得回头去改渲染器，
+ * 而且以后换渲染器又得跟着改一遍。
+ *
+ * 编辑弹窗里的预览面板也复用了 .markdown-body，
+ * 所以预览和最终发布的样式天然一致。
+ */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+    font-family: var(--font-serif);
+    line-height: 1.35;
+    color: var(--ink);
+    margin: 1.6em 0 .6em;
+}
+
+.markdown-body h1 { font-size: 26px; }
+.markdown-body h2 { font-size: 22px; }
+.markdown-body h3 { font-size: 19px; }
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { font-size: 17px; }
+
+/* 正文以标题开头时不要再顶出一大块空白 */
+.markdown-body > :first-child {
+    margin-top: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+    margin: 0 0 1.2em;
+    padding-left: 1.6em;
+}
+
+.markdown-body li {
+    margin: .3em 0;
+}
+
+/* 列表里再嵌列表时，下面那条 margin 会把层级撑得很松，收紧一点 */
+.markdown-body li > ul,
+.markdown-body li > ol {
+    margin-bottom: 0;
+}
+
+.markdown-body a {
+    color: var(--brand);
+    text-decoration: none;
+    border-bottom: 1px solid var(--brand-soft);
+}
+
+.markdown-body a:hover {
+    border-bottom-color: var(--brand);
+}
+
+.markdown-body strong {
+    color: var(--ink);
+    font-weight: 600;
+}
+
+/* 行内代码和代码块共用一套底色。
+   等宽字体在这一带很重要：中文用衬线的话，代码里的空格和竖线看着会错位 */
+.markdown-body code {
+    font-family: var(--font-mono);
+    font-size: .88em;
+    background: #f4f2ef;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+.markdown-body pre {
+    background: #f4f2ef;
+    padding: 14px 18px;
+    border-radius: var(--radius-sm);
+    /* 代码行通常很长，让它自己横向滚，别把整页撑宽 */
+    overflow-x: auto;
+    margin: 0 0 1.2em;
+    line-height: 1.65;
+}
+
+/* 代码块里的 <code> 不要再套一层底色和内边距，
+   否则会出现"灰底上又叠一块灰底"的双层效果 */
+.markdown-body pre code {
+    background: none;
+    padding: 0;
+    font-size: 13.5px;
+}
+
+.markdown-body blockquote {
+    margin: 0 0 1.2em;
+    padding: 2px 0 2px 16px;
+    border-left: 3px solid var(--line);
+    color: var(--ink-soft);
+}
+
+.markdown-body table {
+    border-collapse: collapse;
+    margin: 0 0 1.4em;
+    font-size: 15px;
+    /* 列多的时候正文区宽度不够。
+       三行一起用的效果是：表格按内容宽度排、太宽就自己横向滚动，
+       不会把整个页面撑出横向滚动条 */
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.markdown-body th,
+.markdown-body td {
+    border: 1px solid var(--line);
+    padding: 7px 13px;
+    text-align: left;
+}
+
+.markdown-body th {
+    background: var(--brand-soft);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.markdown-body hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 2em 0;
+}
+
+.markdown-body img {
+    max-width: 100%;
+    border-radius: var(--radius-sm);
+}
+
+/* ==================== Markdown 编辑器工具条 ==================== */
+
+.md-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+}
+
+.md-toolbar button {
+    min-width: 30px;
+    padding: 4px 8px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
     font-family: var(--font-sans);
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+}
+
+.md-toolbar button:hover {
+    background: var(--brand-soft);
+    color: var(--brand);
+}
+
+/* 预览按钮推到最右边。
+   margin-left:auto 在 flex 容器里就是"把剩下的空间全吃掉"，
+   于是它后面再没有别的元素，效果就是被挤到行尾 */
+.md-toolbar .md-preview-btn {
+    margin-left: auto;
+    color: var(--brand);
+}
+
+.md-toolbar .md-preview-btn.active {
+    background: var(--brand-soft);
+}
+
+/* 字段标签右边那句"支持 Markdown"，压淡一档，别抢标签本体的注意力 */
+.md-hint {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--ink-faint);
+}
+
+/* 预览面板：和 textarea 撑到差不多高，切换时页面不会跳 */
+.md-preview-pane {
+    min-height: 260px;
+    max-height: 460px;
+    overflow-y: auto;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font-size: 15px;
+    line-height: 1.85;
+}
+
+.md-empty {
+    color: var(--ink-faint);
+    margin: 0;
 }
 
 /* ============================================================
@@ -1040,6 +1271,56 @@ button.tag-chip:hover {
     color: #fff;
 }
 
+/* 侧栏里"什么都没有"时的一行灰字 */
+.side-empty {
+    font-size: 13px;
+    color: var(--ink-faint);
+    padding: 6px 11px;
+}
+
+/* ============================================================
+   归档页
+   ============================================================ */
+
+/*
+ * scroll-margin-top 是这里的关键，不是随便加的。
+ *
+ * 顶栏是 position: sticky 固定在页面最上方的，点左栏的年份跳到
+ * #month-2026-09 时，浏览器会把那个标题对齐到视口顶端 —— 也就是
+ * 正好被顶栏盖住，用户点完只看到一列文章，看不见"哪年哪月"。
+ * scroll-margin-top 相当于告诉浏览器"把目标当成往下挪了 86px 再对齐"，
+ * 标题就落到顶栏下面了。86px 和 .browse-side 的 sticky top 取的是同一个值，
+ * 改顶栏高度时两个地方要一起改。
+ */
+.archive-month {
+    scroll-margin-top: 86px;
+}
+
+/* 月份标题之间的间距给得大一些，让"一个个月份"的段落感出来；
+   最后一个月份下面不留空，否则页面底部会多出一截白 */
+.archive-month + .archive-month {
+    margin-top: 38px;
+}
+
+.archive-month-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    padding-bottom: 11px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+}
+
+/* "17 篇"这种小字，压在标题基线上，比标题轻 */
+.archive-count {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--ink-faint);
+}
+
 /* ============================================================
    管理后台
    ============================================================ */
@@ -1144,6 +1425,64 @@ button.tag-chip:hover {
 
 .row-actions button.danger {
     color: var(--danger);
+}
+
+/* 没权限改这一行时，操作列显示的东西。
+   留一条短横线占位，比整格空着好看，也让人一眼看出
+   "这儿本来有按钮，只是你动不了"，而不是以为页面没加载出来 */
+.row-locked {
+    color: var(--ink-faint);
+    font-size: 13px;
+}
+
+/* 管理页文章列表里，草稿标题后面那个小角标 */
+.draft-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--warn-soft);
+    border: 1px solid var(--warn-line);
+    color: var(--warn);
+    font-size: 12px;
+    line-height: 18px;
+    vertical-align: 1px;
+    white-space: nowrap;
+}
+
+/* 详情页顶上的草稿提示条。
+   用琥珀色而不是红色：草稿是"还没做完"，不是"出错了" */
+.draft-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+    margin-bottom: 20px;
+    padding: 12px 16px;
+    border: 1px solid var(--warn-line);
+    border-left: 3px solid var(--warn);
+    border-radius: var(--radius-sm);
+    background: var(--warn-soft);
+    font-size: 14px;
+}
+
+.draft-banner strong {
+    color: var(--warn);
+}
+
+/* 解释性文字压淡一档，让"这是一篇草稿"先跳出来 */
+.draft-banner span {
+    color: var(--ink-soft);
+}
+
+.draft-banner a {
+    margin-left: auto;
+    color: var(--warn);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.draft-banner a:hover {
+    text-decoration: underline;
 }
 
 /* 表格没有数据时占满整行的那句提示 */

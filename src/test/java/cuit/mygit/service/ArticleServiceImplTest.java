@@ -1,5 +1,8 @@
 package cuit.mygit.service;
 
+import cuit.mygit.common.ArchiveItem;
+import cuit.mygit.common.ArchiveMonth;
+import cuit.mygit.common.MarkdownRenderer;
 import cuit.mygit.common.PageResult;
 import cuit.mygit.entity.Article;
 import cuit.mygit.entity.ArticleTag;
@@ -19,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Arrays;
@@ -27,14 +31,17 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -64,18 +71,39 @@ class ArticleServiceImplTest {
     @Mock
     private TagMapper tagMapper;
 
+    /**
+     * Markdown 渲染器用<b>真的</b>，不用 mock。
+     * <p>
+     * 它不依赖数据库、不依赖 Spring，构造完就是个纯函数（见 MarkdownRenderer）。
+     * mock 掉的话，"contentHtml 到底有没有被填上、填得对不对"就测不出来了 ——
+     * 而 Service 里对它的调用恰恰是这一层唯一需要保证的事。
+     * <p>
+     * 它自己的渲染规则由 {@code MarkdownRendererTest} 单独负责，两边不重复。
+     */
+    @Spy
+    private MarkdownRenderer markdownRenderer = new MarkdownRenderer();
+
     @InjectMocks
     private ArticleServiceImpl articleService;
 
     // ==================== 工具方法：造测试数据 ====================
 
-    /** 造一篇文章；articleId 传 null 表示"还没入库的新文章" */
+    /** 造一篇<b>已发布</b>的文章；articleId 传 null 表示"还没入库的新文章" */
     private Article buildArticle(Integer articleId, Integer authorId) {
         Article article = new Article();
         article.setArticleId(articleId);
         article.setTitle("测试标题");
+        article.setContent("测试正文");
         article.setUserId(authorId);
+        article.setStatus(1);
         article.setViewCount(0);
+        return article;
+    }
+
+    /** 造一篇<b>草稿</b>：status = 0，只有作者本人和管理员看得见 */
+    private Article buildDraft(Integer articleId, Integer authorId) {
+        Article article = buildArticle(articleId, authorId);
+        article.setStatus(0);
         return article;
     }
 
@@ -107,12 +135,17 @@ class ArticleServiceImplTest {
         article.setViewCount(5);
         when(articleMapper.selectById(1)).thenReturn(article);
 
-        Article result = articleService.getById(1);
+        // 第二个参数是"谁在看"。已发布的文章人人都能看，所以传 null（游客）也行
+        Article result = articleService.getById(1, null);
 
         // 数据库那边加了一次
         verify(articleMapper).increaseViewCount(1);
         // 返回给浏览器的值也要跟着加，否则会比数据库少 1，看着对不上
         assertEquals(6, result.getViewCount().intValue());
+        // 详情接口除了原文，还要把渲染好的 HTML 一起给前端，
+        // 不然前端就得自己再实现一遍 Markdown —— 那就是两套渲染，迟早不一致
+        assertTrue(result.getContentHtml().contains("<p>测试正文</p>"),
+                "contentHtml 没填上：" + result.getContentHtml());
     }
 
     @Test
@@ -121,7 +154,7 @@ class ArticleServiceImplTest {
         when(articleMapper.selectById(999)).thenReturn(null);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> articleService.getById(999));
+                () -> articleService.getById(999, null));
 
         assertTrue(ex.getMessage().contains("文章不存在"));
         verify(articleMapper, never()).increaseViewCount(anyInt());
@@ -191,6 +224,345 @@ class ArticleServiceImplTest {
         assertEquals(10, result.getArticleId().intValue());
         // 没填分类时不该去查分类表
         verify(categoryMapper, never()).selectById(any());
+    }
+
+    // ==================== 预览渲染 ====================
+
+    @Test
+    @DisplayName("预览：把 Markdown 渲染成 HTML，一个字都不落库")
+    void renderPreview_rendersWithoutTouchingDb() {
+        String html = articleService.renderPreview("**粗体**");
+
+        assertTrue(html.contains("<strong>粗体</strong>"));
+        // 预览处理的是"还没提交的正文"，连属于哪篇文章都不知道，
+        // 所以它一个数据库操作都不该有
+        verifyNoInteractions(articleMapper);
+    }
+
+    @Test
+    @DisplayName("预览：正文为空时返回空串，不抛异常")
+    void renderPreview_blank() {
+        // 编辑器里刚全选删掉、还没开始写就点了预览，属于正常操作，
+        // 不该弹一个红叉出来
+        assertEquals("", articleService.renderPreview(null));
+        assertEquals("", articleService.renderPreview("   \n  "));
+    }
+
+    // ==================== 草稿与发布状态 ====================
+
+    /*
+     * 一条"草稿"的定义：status = 0，只有作者本人和管理员看得见。
+     * 公开入口（列表、分页、搜索、按分类/标签/作者查）的过滤写在 SQL 里，
+     * 属于 Mapper 的职责，单测里 mock 掉了查不到 —— 那部分靠下面的
+     * getById 和 listForManage 来保证：它们是"绕过列表、直接按ID拿数据"
+     * 的入口，也最容易漏。
+     */
+
+    @Test
+    @DisplayName("查详情：草稿作者本人能看，但草稿不涨浏览量")
+    void getById_draft_authorCanSee() {
+        when(articleMapper.selectById(1)).thenReturn(buildDraft(1, 1));
+
+        Article result = articleService.getById(1, 1);
+
+        assertEquals(0, result.getStatus().intValue());
+        // 作者来回预览几遍就把浏览量刷上去了，没意义。
+        // 这里也顺便验证了"是自己的稿子"是在查用户表之前就短路掉的
+        verify(articleMapper, never()).increaseViewCount(anyInt());
+        // 草稿也要能渲染 —— 作者写稿子的时候当然想看排版效果
+        assertTrue(result.getContentHtml().contains("<p>测试正文</p>"));
+    }
+
+    @Test
+    @DisplayName("查详情：没权限看草稿时连渲染都不做，正文一个字符都不处理")
+    void getById_draft_strangerDoesNotRender() {
+        when(articleMapper.selectById(1)).thenReturn(buildDraft(1, 1));
+        when(userMapper.selectById(3)).thenReturn(buildUser(3, 0));
+
+        assertThrows(BusinessException.class, () -> articleService.getById(1, 3));
+
+        // "渲染放在权限判断之后"是有意的：没权限的请求不该拿到任何正文内容，
+        // 哪怕是已经转成 HTML 的。这条断言守住这个顺序
+        verify(markdownRenderer, never()).toHtml(anyString());
+    }
+
+    @Test
+    @DisplayName("查详情：管理员能看别人的草稿")
+    void getById_draft_adminCanSee() {
+        when(articleMapper.selectById(1)).thenReturn(buildDraft(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));      // 2 号是管理员
+
+        Article result = articleService.getById(1, 2);
+
+        assertEquals(0, result.getStatus().intValue());
+    }
+
+    @Test
+    @DisplayName("查详情：别人的草稿，对外只说'文章不存在'，不承认这篇稿子存在")
+    void getById_draft_strangerCannotSee() {
+        when(articleMapper.selectById(1)).thenReturn(buildDraft(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(3)).thenReturn(buildUser(3, 0));      // 3 号是普通用户
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.getById(1, 3));
+
+        // 关键在这个措辞：说的是"不存在"，不是"没权限"。
+        // 说"没权限"等于承认这个ID上确实有东西，对方接着试 1、2、3……
+        // 就能把你攒了几篇没发的稿子数出来
+        assertTrue(ex.getMessage().contains("文章不存在"));
+        assertFalse(ex.getMessage().contains("权限"));
+        verify(articleMapper, never()).increaseViewCount(anyInt());
+    }
+
+    @Test
+    @DisplayName("查详情：没登录（operatorId 为 null）看不到草稿")
+    void getById_draft_visitorCannotSee() {
+        when(articleMapper.selectById(1)).thenReturn(buildDraft(1, 1));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.getById(1, null));
+
+        assertTrue(ex.getMessage().contains("文章不存在"));
+    }
+
+    @Test
+    @DisplayName("查详情：已发布的文章，游客照样能看")
+    void getById_published_visitorCanSee() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+
+        Article result = articleService.getById(1, null);
+
+        assertEquals(1, result.getStatus().intValue());
+        // 已发布的不受影响，浏览量照加
+        verify(articleMapper).increaseViewCount(1);
+    }
+
+    @Test
+    @DisplayName("发表文章：不传 status 就是直接发布，行为和老版本一致")
+    void add_defaultsToPublished() {
+        Article article = buildArticle(null, 1);
+        article.setStatus(null);   // 调用方压根没提这个概念
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+        doAnswer(invocation -> {
+            Article arg = invocation.getArgument(0);
+            arg.setArticleId(10);
+            return 1;
+        }).when(articleMapper).insert(any(Article.class));
+        when(articleMapper.selectById(10)).thenReturn(buildArticle(10, 1));
+
+        articleService.add(article);
+
+        // 不能默认成草稿 —— 那会让所有不传 status 的老调用方发出去的文章
+        // 全都从首页消失，用户还以为发失败了
+        assertEquals(1, article.getStatus().intValue());
+    }
+
+    @Test
+    @DisplayName("发表文章：status 传 0 就存成草稿")
+    void add_asDraft() {
+        Article article = buildArticle(null, 1);
+        article.setStatus(0);
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+        doAnswer(invocation -> {
+            Article arg = invocation.getArgument(0);
+            arg.setArticleId(10);
+            return 1;
+        }).when(articleMapper).insert(any(Article.class));
+        when(articleMapper.selectById(10)).thenReturn(buildArticle(10, 1));
+
+        articleService.add(article);
+
+        // 断言"插进去的那一篇"确实是草稿，而不是内存里改了、写库时又变回已发布
+        assertEquals(0, article.getStatus().intValue());
+        verify(articleMapper).insert(article);
+    }
+
+    @Test
+    @DisplayName("发表文章：status 不是 0 也不是 1 时拒绝，不插库")
+    void add_invalidStatus() {
+        Article article = buildArticle(null, 1);
+        article.setStatus(2);
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.add(article));
+
+        assertTrue(ex.getMessage().contains("文章状态"));
+        verify(articleMapper, never()).insert(any(Article.class));
+    }
+
+    @Test
+    @DisplayName("修改文章：不传 status 时沿用库里原值，草稿不会因为编辑一下就发出去")
+    void update_keepsOldStatusWhenNotProvided() {
+        Article old = buildDraft(1, 1);
+        when(articleMapper.selectById(1)).thenReturn(old);
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("改过的标题");
+        edited.setStatus(null);   // 编辑表单里没带这个字段
+
+        articleService.update(edited, 1);
+
+        // 要是这里兜底写成"null 就当作已发布"，那编辑一篇草稿、
+        // 顺手点个保存，稿子就自己发出去了 —— 而且不会有任何提示
+        assertEquals(0, edited.getStatus().intValue());
+    }
+
+    @Test
+    @DisplayName("修改文章：带了 status 就按带来的改（发布 or 转回草稿）")
+    void update_changesStatusWhenProvided() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("改过的标题");
+        edited.setStatus(0);   // 撤回，变回草稿
+
+        articleService.update(edited, 1);
+
+        assertEquals(0, edited.getStatus().intValue());
+        verify(articleMapper).update(edited);
+    }
+
+    @Test
+    @DisplayName("修改文章：status 不是 0 也不是 1 时拒绝，不写库")
+    void update_invalidStatus() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("改过的标题");
+        edited.setStatus(7);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.update(edited, 1));
+
+        assertTrue(ex.getMessage().contains("文章状态"));
+        verify(articleMapper, never()).update(any(Article.class));
+    }
+
+    @Test
+    @DisplayName("管理页列表：普通用户查不到别人的草稿")
+    void listForManage_regularUser() {
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));
+        when(articleMapper.selectForManage(2, false)).thenReturn(Collections.emptyList());
+
+        articleService.listForManage(2);
+
+        // includeAllDrafts 必须是 false。一旦传成 true，
+        // 全站所有人的草稿就都发到普通用户的浏览器里了
+        verify(articleMapper).selectForManage(2, false);
+    }
+
+    @Test
+    @DisplayName("管理页列表：管理员能查到所有人的草稿")
+    void listForManage_admin() {
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 1));
+        when(articleMapper.selectForManage(1, true)).thenReturn(Collections.emptyList());
+
+        articleService.listForManage(1);
+
+        verify(articleMapper).selectForManage(1, true);
+    }
+
+    @Test
+    @DisplayName("管理页列表：没传操作人ID时拒绝")
+    void listForManage_noOperator() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.listForManage(null));
+
+        assertTrue(ex.getMessage().contains("缺少操作人ID"));
+    }
+
+    // ==================== 修改文章（权限） ====================
+
+    /*
+     * 下面这一组是补的。
+     *
+     * 原先 update 的签名是 update(Article)，里面只收一个文章对象 ——
+     * 参数里根本没有"是谁在改"这个信息，想判权限都没得判。
+     * 结果就是任何登录用户都能把别人的文章改掉，
+     * 而删除那边（下面那一组）一直是有权限判断的，两边不一致。
+     *
+     * 测试也是零：update 一个用例都没有，所以这个洞一直没被照出来。
+     */
+
+    @Test
+    @DisplayName("修改文章：既不是作者也不是管理员时拒绝，且一个字都不写库")
+    void update_notOwnerAndNotAdmin() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 0));       // 操作人 2 号是普通用户
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("被篡改的标题");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.update(edited, 2));
+
+        assertTrue(ex.getMessage().contains("没有权限"));
+        // 权限没过，update 一次都不该被调用。
+        // 这条断言就是这个 bug 的"看门人"：权限判断要是被谁删了，这里立刻红
+        verify(articleMapper, never()).update(any(Article.class));
+    }
+
+    @Test
+    @DisplayName("修改文章：作者本人可以改")
+    void update_byAuthor() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("改过的标题");
+
+        articleService.update(edited, 1);
+
+        verify(articleMapper).update(edited);
+    }
+
+    @Test
+    @DisplayName("修改文章：管理员可以改别人的文章")
+    void update_byAdmin() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 作者是 1 号
+        when(userMapper.selectById(2)).thenReturn(buildUser(2, 1));       // 操作人 2 号是管理员
+
+        Article edited = buildArticle(1, 1);
+        edited.setTitle("管理员改的");
+
+        articleService.update(edited, 2);
+
+        verify(articleMapper).update(edited);
+    }
+
+    @Test
+    @DisplayName("修改文章：请求体里塞别人的 userId 也没用，作者以库里原值为准")
+    void update_cannotChangeAuthor() {
+        when(articleMapper.selectById(1)).thenReturn(buildArticle(1, 1));  // 原作者是 1 号
+        when(userMapper.selectById(1)).thenReturn(buildUser(1, 0));
+
+        Article edited = buildArticle(1, 999);  // 想把这篇"过继"给 999 号
+        edited.setTitle("改过的标题");
+
+        articleService.update(edited, 1);
+
+        // 不覆盖的话，改完文章就从自己列表里消失、跑到别人名下了 ——
+        // 等于绕过权限把自己不想要的文章塞给别人
+        assertEquals(1, edited.getUserId().intValue());
+    }
+
+    @Test
+    @DisplayName("修改文章：文章不存在时抛业务异常")
+    void update_articleNotExist() {
+        when(articleMapper.selectById(999)).thenReturn(null);
+
+        Article edited = buildArticle(999, 1);
+        edited.setTitle("改过的标题");
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.update(edited, 1));
+
+        assertTrue(ex.getMessage().contains("文章不存在"));
+        verify(articleMapper, never()).update(any(Article.class));
     }
 
     // ==================== 删除文章（权限 + 级联） ====================
@@ -546,5 +918,262 @@ class ArticleServiceImplTest {
         // 页码大得这么离谱，说明对方不是真想翻页，给个空页就行
         assertTrue(result.getList().isEmpty());
         verify(articleMapper, never()).selectPage(anyInt(), anyInt());
+    }
+
+    // ==================== 热门 ====================
+
+    @Test
+    @DisplayName("热门：走的是按浏览量排序的那条 SQL，不是按时间的")
+    void hot_usesHotQuery() {
+        when(articleMapper.countAll()).thenReturn(30L);
+        when(articleMapper.selectHotPage(0, 10)).thenReturn(Collections.emptyList());
+
+        articleService.hot(1, 10);
+
+        verify(articleMapper).selectHotPage(0, 10);
+        // 这里特意反过来验一次：如果实现里不小心复制粘贴成了 selectPage，
+        // 光验"selectHotPage 被调了"是发现不了的（它压根没被调，测试会失败）
+        verify(articleMapper, never()).selectPage(anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("热门：总数复用全站文章数，不再单独查一次")
+    void hot_reusesTotalCount() {
+        when(articleMapper.countAll()).thenReturn(30L);
+        when(articleMapper.selectHotPage(0, 10)).thenReturn(Collections.emptyList());
+
+        PageResult<Article> result = articleService.hot(1, 10);
+
+        // 热门只是换了个排序，参与的文章一篇不多一篇不少，
+        // 所以总数和"最新"完全一样，没必要再写一个 countHot
+        assertEquals(30, result.getTotal());
+        verify(articleMapper).countAll();
+    }
+
+    @Test
+    @DisplayName("热门：每页条数同样受 50 条上限约束")
+    void hot_sizeClampedToMax() {
+        when(articleMapper.countAll()).thenReturn(100L);
+        when(articleMapper.selectHotPage(0, 50)).thenReturn(Collections.emptyList());
+
+        articleService.hot(1, 100000);
+
+        // 上限这条约束在三个分页方法里必须一致。
+        // 只给 page() 加上限、漏了 hot() 的话，热门页就成了绕过限制的口子
+        verify(articleMapper).selectHotPage(0, 50);
+    }
+
+    @Test
+    @DisplayName("热门：页码小于 1 时按第 1 页算")
+    void hot_pageNumberTooSmall() {
+        when(articleMapper.countAll()).thenReturn(5L);
+        when(articleMapper.selectHotPage(0, 10)).thenReturn(Collections.emptyList());
+
+        PageResult<Article> result = articleService.hot(0, 10);
+
+        assertEquals(1, result.getPage());
+        verify(articleMapper).selectHotPage(0, 10);
+    }
+
+    @Test
+    @DisplayName("热门：偏移量溢出时直接返回空页，不查数据库")
+    void hot_offsetOverflow_returnsEmptyPage() {
+        when(articleMapper.countAll()).thenReturn(5L);
+
+        PageResult<Article> result = articleService.hot(Integer.MAX_VALUE, 50);
+
+        assertTrue(result.getList().isEmpty());
+        verify(articleMapper, never()).selectHotPage(anyInt(), anyInt());
+    }
+
+    // ==================== 推荐 ====================
+
+    @Test
+    @DisplayName("推荐：按 followerId 查我关注的人写的文章")
+    void recommend_success() {
+        when(articleMapper.countByFollowerId(1)).thenReturn(2L);
+        when(articleMapper.selectRecommendedByFollowerId(1, 0, 10))
+                .thenReturn(List.of(buildArticle(11, 2), buildArticle(12, 3)));
+
+        PageResult<Article> result = articleService.recommend(1, 10, 1);
+
+        assertEquals(2, result.getList().size());
+        assertEquals(2, result.getTotal());
+        verify(articleMapper).selectRecommendedByFollowerId(1, 0, 10);
+    }
+
+    @Test
+    @DisplayName("推荐：没传关注人ID时报错，不会退化成查全站")
+    void recommend_nullFollowerId() {
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> articleService.recommend(1, 10, null));
+
+        assertEquals("缺少关注人ID", ex.getMessage());
+        // 关键的一条：不能"算了，就当没传，查全部吧"。
+        // 那样游客会看到一屏和"最新"一模一样的内容，标签却写着"推荐"，
+        // 看起来像是关注功能坏了
+        verify(articleMapper, never()).selectRecommendedByFollowerId(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("推荐：没关注任何人时返回空分页结果，而不是抛异常")
+    void recommend_emptyWhenFollowingNobody() {
+        when(articleMapper.countByFollowerId(1)).thenReturn(0L);
+
+        PageResult<Article> result = articleService.recommend(1, 10, 1);
+
+        // "还没关注人"是正常状态，不是错误 —— 前端要靠 total = 0
+        // 来决定显示那段引导文案，抛异常的话前端只能弹个错误框
+        assertTrue(result.getList().isEmpty());
+        assertEquals(0, result.getTotal());
+        // 总数已经是 0 了，再发一次必然查不到数据的 LIMIT 查询纯属浪费
+        verify(articleMapper, never()).selectRecommendedByFollowerId(any(), anyInt(), anyInt());
+    }
+
+    @Test
+    @DisplayName("推荐：偏移量按页码算")
+    void recommend_offsetCalculatedFromPageNumber() {
+        when(articleMapper.countByFollowerId(1)).thenReturn(100L);
+        when(articleMapper.selectRecommendedByFollowerId(1, 20, 10))
+                .thenReturn(Collections.emptyList());
+
+        articleService.recommend(3, 10, 1);
+
+        // 第 3 页，每页 10 条 → 跳过 20 条。
+        // followerId 是第一个参数，别和 offset 传串了 ——
+        // 两个都是 Integer，传反了编译器不会报警，只会查到一片空
+        verify(articleMapper).selectRecommendedByFollowerId(1, 20, 10);
+    }
+
+    @Test
+    @DisplayName("推荐：每页条数同样受 50 条上限约束")
+    void recommend_sizeClampedToMax() {
+        when(articleMapper.countByFollowerId(1)).thenReturn(100L);
+        when(articleMapper.selectRecommendedByFollowerId(1, 0, 50))
+                .thenReturn(Collections.emptyList());
+
+        articleService.recommend(1, 100000, 1);
+
+        verify(articleMapper).selectRecommendedByFollowerId(1, 0, 50);
+    }
+
+    // ==================== 按月归档 ====================
+
+    /**
+     * 造一行归档数据。
+     * <p>
+     * 这是个**投影**对象（{@code ArchiveItem}），不是实体：它只带归档页
+     * 用得上的那几个字段，没有正文。所以这里不从 {@code Article} 转，
+     * 直接建。
+     */
+    private ArchiveItem buildArchiveItem(String month, Integer articleId) {
+        ArchiveItem item = new ArchiveItem();
+        item.setMonth(month);
+        item.setArticleId(articleId);
+        item.setTitle("归档测试 " + articleId);
+        item.setUserId(1);
+        item.setViewCount(0);
+        return item;
+    }
+
+    @Test
+    @DisplayName("归档：按月份分成若干组，同一个月的文章归到一起")
+    void listArchive_groupsByMonth() {
+        when(articleMapper.selectArchive()).thenReturn(Arrays.asList(
+                buildArchiveItem("2026-09", 1),
+                buildArchiveItem("2026-09", 2),
+                buildArchiveItem("2025-12", 3)));
+
+        List<ArchiveMonth> archive = articleService.listArchive();
+
+        assertEquals(2, archive.size());
+
+        assertEquals("2026-09", archive.get(0).getMonth());
+        assertEquals(2, archive.get(0).getArticles().size());
+
+        assertEquals("2025-12", archive.get(1).getMonth());
+        assertEquals(1, archive.get(1).getArticles().size());
+    }
+
+    @Test
+    @DisplayName("归档：Service 不重新排序，月份顺序完全照搬 SQL 给的顺序")
+    void listArchive_keepsSqlOrder() {
+        // 故意给一个"升序"的输入：如果 Service 自己按月份排过序，
+        // 输出就会变成 2026-01 在前，这个断言立刻失败
+        when(articleMapper.selectArchive()).thenReturn(Arrays.asList(
+                buildArchiveItem("2025-12", 1),
+                buildArchiveItem("2026-09", 2)));
+
+        List<ArchiveMonth> archive = articleService.listArchive();
+
+        // 排序规则只写在 SQL 一处（ORDER BY create_time DESC），
+        // Java 侧只负责"分堆"、不插嘴。两边各排一次的话，
+        // 哪天改动了一边，另一边就会在背后把顺序改回去，很难查
+        assertEquals("2025-12", archive.get(0).getMonth());
+        assertEquals("2026-09", archive.get(1).getMonth());
+    }
+
+    @Test
+    @DisplayName("归档：同一个月的文章保持 SQL 给的先后顺序")
+    void listArchive_keepsOrderInsideMonth() {
+        when(articleMapper.selectArchive()).thenReturn(Arrays.asList(
+                buildArchiveItem("2026-09", 17),
+                buildArchiveItem("2026-09", 6),
+                buildArchiveItem("2026-09", 3)));
+
+        List<ArchiveItem> articles = articleService.listArchive().get(0).getArticles();
+
+        assertEquals(Arrays.asList(17, 6, 3),
+                articles.stream().map(ArchiveItem::getArticleId).toList());
+    }
+
+    @Test
+    @DisplayName("归档：一篇文章都没有时返回空集合，不是 null")
+    void listArchive_empty() {
+        when(articleMapper.selectArchive()).thenReturn(Collections.emptyList());
+
+        List<ArchiveMonth> archive = articleService.listArchive();
+
+        // 返回 null 的话，Controller 包出来就是 "data": null，
+        // 前端 months.length 会直接报错。空集合才是能安全遍历的"没有数据"
+        assertNotNull(archive);
+        assertTrue(archive.isEmpty());
+    }
+
+    @Test
+    @DisplayName("归档：同一个月分开出现时并回原来那组，不新开一组")
+    void listArchive_sameMonthAppearingTwiceMergesIntoOneGroup() {
+        // 按时间倒序的正常数据里，同一个月必然是连着的。
+        // 这里故意拆开（2026-01, 2025-12, 2026-01），验证第二次遇到
+        // 2026-01 时是"并回原来那组"——分组靠的是 Map 的键，
+        // 不是"相邻的才算一组"，所以中间隔着别的月份也不影响
+        when(articleMapper.selectArchive()).thenReturn(Arrays.asList(
+                buildArchiveItem("2026-01", 1),
+                buildArchiveItem("2025-12", 2),
+                buildArchiveItem("2026-01", 3)));
+
+        List<ArchiveMonth> archive = articleService.listArchive();
+
+        assertEquals(2, archive.size());
+        assertEquals("2026-01", archive.get(0).getMonth());
+        assertEquals(2, archive.get(0).getArticles().size());   // 1 号和 3 号都在这一组
+        assertEquals(3, archive.get(0).getArticles().get(1).getArticleId());
+    }
+
+    @Test
+    @DisplayName("归档：只查一次数据库，不会为了每个月再补一次查询")
+    void listArchive_queriesDatabaseOnce() {
+        when(articleMapper.selectArchive()).thenReturn(Arrays.asList(
+                buildArchiveItem("2026-09", 1),
+                buildArchiveItem("2025-12", 2),
+                buildArchiveItem("2025-06", 3)));
+
+        articleService.listArchive();
+
+        // 这是"一条 SQL 拉全量 + 内存分组"和"N 个月查 N 次"的分水岭。
+        // 后者在月份多了以后会把数据库打成筛子，且没有任何好处
+        verify(articleMapper).selectArchive();
+        verifyNoInteractions(userMapper, categoryMapper, commentMapper,
+                articleTagMapper, tagMapper);
     }
 }

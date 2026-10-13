@@ -4,6 +4,7 @@ import cuit.mygit.entity.User;
 import cuit.mygit.exception.BusinessException;
 import cuit.mygit.mapper.ArticleMapper;
 import cuit.mygit.mapper.CommentMapper;
+import cuit.mygit.mapper.UserFollowMapper;
 import cuit.mygit.mapper.UserMapper;
 import cuit.mygit.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,10 @@ public class UserServiceImpl implements UserService {
     /** 删用户时要连带删掉他的评论 */
     @Autowired
     private CommentMapper commentMapper;
+
+    /** 删用户时要连带清掉他和别人的关注关系 */
+    @Autowired
+    private UserFollowMapper userFollowMapper;
 
     @Override
     public List<User> listAll() {
@@ -165,6 +170,13 @@ public class UserServiceImpl implements UserService {
         // 注意顺序 —— comment 表有指向 user 的外键，必须先删评论再删用户，
         // 反过来的话数据库会报"外键约束失败"。
         commentMapper.deleteByUserId(userId);
+
+        // 关注关系也一样：人没了，他关注过的人、关注过他的人，
+        // 这些关系都失去意义了，一起清掉。
+        // user_follow 的两个字段都有指向 user 的外键，所以要清的是
+        // 两个方向，只清一边照样会被外键拦住（Mapper 里用 OR 一次清完）。
+        userFollowMapper.deleteByUserId(userId);
+
         userMapper.deleteById(userId);
 
         // @Transactional 保证这两步要么都成功要么都不做，
